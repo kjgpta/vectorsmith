@@ -12,7 +12,7 @@ Write a `tools.yaml`. VectorSmith compiles it into typed, tenant-guarded tools â
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
 [![TDS](https://img.shields.io/badge/tools.yaml-TDS%20v1%20%2B%20v2-7C3AED.svg)](docs/tools-yaml-reference.md)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20%2B%20HTTP-111827.svg)](docs/integrations/README.md)
-[![Version](https://img.shields.io/badge/version-0.2.1-0F766E.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.2-0F766E.svg)](CHANGELOG.md)
 [![Backend status](https://img.shields.io/badge/backends-experimental-C2410C.svg)](docs/conformance.md)
 [![Docs](https://img.shields.io/badge/docs-kjgpta.github.io-0F766E.svg)](https://kjgpta.github.io/vectorsmith/)
 

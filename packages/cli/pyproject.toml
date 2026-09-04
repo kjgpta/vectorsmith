@@ -1,6 +1,6 @@
 [project]
 name = "vectorsmith"
-version = "0.2.1"
+version = "0.2.2"
 description = "YAML tools for agents: load_tools in-process, or vectorsmith serve as MCP"
 readme = "README.md"
 requires-python = ">=3.11"

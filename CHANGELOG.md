@@ -5,6 +5,8 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-09-04
+
 ### Fixed
 
 - Experimental client-boundary CI now isolates each backend SDK instead of allowing
