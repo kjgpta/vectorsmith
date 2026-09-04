@@ -5851,7 +5851,7 @@ requires-dist = [
     { name = "typer" },
     { name = "uvicorn" },
     { name = "watchfiles" },
-    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.4" },
+    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.16.9" },
 ]
 provides-extras = ["qdrant", "pgvector", "chroma", "pinecone", "weaviate", "milvus", "langchain", "langgraph", "openai-agents", "anthropic", "embed-openai", "embed-cohere", "auth-jwt", "auth-redis", "otel", "creds-aws", "rerank-local"]
 
@@ -5901,6 +5901,8 @@ pinecone = [
     { name = "pinecone" },
 ]
 qdrant = [
+    { name = "fastembed", version = "0.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "fastembed", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "qdrant-client", version = "1.12.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "qdrant-client", version = "1.19.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
 ]
@@ -5918,6 +5920,7 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'chroma'", specifier = ">=1.5,<2" },
     { name = "cohere", marker = "extra == 'embed-cohere'", specifier = ">=5.0" },
     { name = "fastembed", marker = "extra == 'embed'", specifier = ">=0.3" },
+    { name = "fastembed", marker = "extra == 'qdrant'", specifier = ">=0.3" },
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "lark" },
@@ -5934,7 +5937,7 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "qdrant-client", marker = "extra == 'qdrant'", specifier = ">=1.10.1" },
     { name = "sentence-transformers", marker = "extra == 'rerank-local'", specifier = ">=3.0" },
-    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.4" },
+    { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.16.9" },
 ]
 provides-extras = ["qdrant", "pgvector", "chroma", "pinecone", "weaviate", "milvus", "embed", "embed-openai", "embed-cohere", "otel", "creds-aws", "rerank-local"]
 

@@ -5,6 +5,14 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Experimental client-boundary CI now isolates each backend SDK instead of allowing
+  unrelated stores to create transitive dependency conflicts.
+- The Qdrant extra includes FastEmbed for its BM25 sparse hybrid path, and Weaviate's
+  minimum client is 4.16.9 because older releases fail boolean-filter serialization
+  with current protobuf.
+
 ## [0.2.1] — 2026-09-04
 
 ### Added

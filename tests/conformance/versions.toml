@@ -61,12 +61,13 @@ python = ">=3.11"
 service = "weaviate"
 server = "1.28.5"
 client = "weaviate-client"
-minimum = "4.4"
-minimum_tested = "4.4.0"
+minimum = "4.16.9"
+minimum_tested = "4.16.9"
 pinned = "4.23.0"
 newest_tested = "4.23.0"
 python = ">=3.11"
-# 4.4.0 is the first stable boundary covered by this contract.
+# 4.16.9 restores the protobuf<7 constraint omitted by the yanked 4.16.8;
+# earlier clients serialize boolean filters into an integer protobuf field.
 
 [backends.milvus]
 service = "milvus"

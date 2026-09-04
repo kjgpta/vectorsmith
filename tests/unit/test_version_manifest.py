@@ -20,8 +20,8 @@ def test_manifest_defines_every_backend_and_boundary() -> None:
         assert backend.version_for("max") == backend.newest_tested
         assert backend.python == ">=3.11"
 
-    assert manifest.backends["weaviate"].minimum == "4.4"
-    assert manifest.backends["weaviate"].minimum_tested == "4.4.0"
+    assert manifest.backends["weaviate"].minimum == "4.16.9"
+    assert manifest.backends["weaviate"].minimum_tested == "4.16.9"
     assert manifest.backends["qdrant"].minimum_tested == "1.10.1"
     assert manifest.backends["pgvector"].minimum_tested == "3.2.1"
     assert manifest.backends["chroma"].minimum_tested == "1.5.0"

@@ -59,13 +59,18 @@ jobs:
           --github-output "$GITHUB_OUTPUT"
           --json-output
           ".internal/phase2/${{ matrix.backend }}-${{ matrix.boundary }}-boundary.json"
-      - name: Sync conformance SDKs
-        run: uv sync --group dev --group conformance --frozen
+      - name: Sync test environment
+        run: uv sync --group dev --frozen
       - name: Install exact boundary client
         run: |
-          uv pip install \
-            --python .venv/bin/python \
+          requirements=(
             "${{ steps.versions.outputs.client }}==${{ steps.versions.outputs.client_version }}"
+          )
+          case "${{ matrix.backend }}" in
+            qdrant) requirements+=("fastembed>=0.3") ;;
+            chroma) requirements+=("numpy<2") ;;
+          esac
+          uv pip install --python .venv/bin/python "${requirements[@]}"
           uv pip check --python .venv/bin/python
       - name: Start backend
         run: docker compose up -d "${{ steps.versions.outputs.service }}"
