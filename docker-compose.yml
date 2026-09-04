@@ -17,7 +17,7 @@ services:
       - "5432:5432"
 
   chroma:
-    image: chromadb/chroma:0.6.3
+    image: chromadb/chroma:1.5.0
     ports:
       - "8000:8000"
 
@@ -25,12 +25,22 @@ services:
     image: cr.weaviate.io/semitechnologies/weaviate:1.28.5
     ports:
       - "8080:8080"
+      - "50051:50051"
     environment:
       QUERY_DEFAULTS_LIMIT: 25
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
       DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: text2vec-transformers
+      TRANSFORMERS_INFERENCE_API: http://text2vec-transformers:8080
       CLUSTER_HOSTNAME: node1
+    depends_on:
+      - text2vec-transformers
+
+  text2vec-transformers:
+    image: cr.weaviate.io/semitechnologies/transformers-inference:sentence-transformers-all-MiniLM-L6-v2
+    environment:
+      ENABLE_CUDA: "0"
 
   milvus:
     image: milvusdb/milvus:v2.5.4
@@ -43,11 +53,12 @@ services:
       - "9091:9091"
 
   pinecone-local:
-    image: ghcr.io/pinecone-io/pinecone-local:latest
+    image: ghcr.io/pinecone-io/pinecone-local@sha256:0f944585830a30c37260ac6534c7c206280490947e1ddbb716474166b517b6c7
     environment:
       PORT: 5080
       PINECONE_HOST: localhost
     ports:
-      - "5080:5080"
+      - "5080-5090:5080-5090"
+    platform: linux/amd64
     extra_hosts:
       - "host.docker.internal:host-gateway"

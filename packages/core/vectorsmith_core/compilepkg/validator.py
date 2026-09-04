@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from typing import Any, Literal
 
-from vectorsmith_core.adapters.capabilities import CAPS_BY_BACKEND
+from vectorsmith_core.adapters.capabilities import CAPS_BY_BACKEND, Capabilities
 from vectorsmith_core.tds.models import (
     EmbeddingConfig,
     PgvectorConn,
@@ -85,6 +85,18 @@ def validate(tds: TDSFile, *, live_sparse: dict[str, bool] | None = None) -> lis
                 severity="warning",
             )
         )
+    for name, conn in tds.connections.items():
+        caps = CAPS_BY_BACKEND.get(conn.backend)
+        if caps is not None and caps.support_level == "experimental":
+            issues.append(
+                _issue(
+                    "VB2024",
+                    f"backend '{conn.backend}' is experimental; "
+                    "verify against your SDK/server versions",
+                    severity="warning",
+                    path=f"connections.{name}",
+                )
+            )
     reserved = RESERVED | _enabled_builtin_names(tds)
     seen_params: dict[str, set[str]] = {}
 
@@ -248,12 +260,58 @@ def _embed_provider_issues(tds: TDSFile) -> list[Any]:
 
 
 def _conn_for(tds: TDSFile, tool: ToolSpec) -> object | None:
+    connection, _ = _target_for(tool)
+    if connection is not None:
+        return tds.connections.get(connection)
+    return None
+
+
+def _target_for(tool: ToolSpec) -> tuple[str | None, str | None]:
     if tool.target:
-        return tds.connections.get(tool.target.connection)
+        collection = tool.target.collection if isinstance(tool.target.collection, str) else None
+        return tool.target.connection, collection
     for step in tool.steps or []:
         if isinstance(step, RetrieveStep):
-            return tds.connections.get(step.retrieve.target.connection)
-    return None
+            target = step.retrieve.target
+            collection = target.collection if isinstance(target.collection, str) else None
+            return target.connection, collection
+    return None, None
+
+
+def _static_filter_capability_issues(
+    filters: object,
+    caps: Capabilities | None,
+    *,
+    tool: str | None = None,
+    base_path: str | None = None,
+) -> list[Any]:
+    """Apply backend path/operator gates to both static-filter branches."""
+    issues: list[Any] = []
+    if caps is None:
+        return issues
+    for branch in ("must", "must_not"):
+        for static_filter in getattr(filters, branch, None) or []:
+            path = static_filter.path
+            issue_path = f"{base_path}.{branch}.{path}" if base_path else path
+            if static_filter.op not in caps.ops:
+                issues.append(
+                    _issue(
+                        "VB2004",
+                        f"backend does not support op '{static_filter.op}'",
+                        tool=tool,
+                        path=issue_path,
+                    )
+                )
+            if "." in path and not caps.nested_paths:
+                issues.append(
+                    _issue(
+                        "VB2004",
+                        "backend does not support nested paths",
+                        tool=tool,
+                        path=issue_path,
+                    )
+                )
+    return issues
 
 
 def _validate_tool(
@@ -294,6 +352,20 @@ def _validate_tool(
 
     conn = _conn_for(tds, tool)
     caps = CAPS_BY_BACKEND.get(getattr(conn, "backend", ""), None)
+    issues.extend(_static_filter_capability_issues(tool.static_filters, caps, tool=tool.name))
+
+    if tool.kind == "scroll" and (caps is None or not caps.scroll):
+        issues.append(
+            _issue("VB2004", "backend does not support scroll", tool=tool.name)
+        )
+    if (
+        tool.kind == "count"
+        and (tool.parameters or tool.static_filters)
+        and (caps is None or not caps.count_with_filter)
+    ):
+        issues.append(
+            _issue("VB2004", "backend does not support filtered count", tool=tool.name)
+        )
 
     if isinstance(conn, PgvectorConn) and is_table_mode(conn):
         if tool.kind == "search" or tool.query is not None:
@@ -334,8 +406,23 @@ def _validate_tool(
                     path=p.path,
                 )
             )
+        if p.dtype == "keyword[]" and (caps is None or not caps.arrays):
+            issues.append(
+                _issue(
+                    "VB2004",
+                    "backend does not support array filters",
+                    tool=tool.name,
+                    path=p.path,
+                )
+            )
         if p.resolve is not None and p.resolve.kind == "directory":
-            if caps is None or not caps.scroll:
+            resolve_conn = (
+                tds.connections.get(p.resolve.connection)
+                if p.resolve.connection is not None
+                else conn
+            )
+            resolve_caps = CAPS_BY_BACKEND.get(getattr(resolve_conn, "backend", ""), None)
+            if resolve_caps is None or not resolve_caps.scroll:
                 issues.append(
                     _issue(
                         "VB4021",
@@ -400,13 +487,13 @@ def _validate_tool(
                     _issue("VB2012", "hybrid is not supported on this backend", tool=tool.name)
                 )
             elif live_sparse is not None and conn is not None:
-                coll = (
-                    tool.target.collection
-                    if tool.target and isinstance(tool.target.collection, str)
-                    else ""
-                )
+                connection, coll = _target_for(tool)
                 # if we have live knowledge and sparse is False → error
-                if any(k.endswith(f":{coll}") and not v for k, v in live_sparse.items()):
+                if (
+                    connection is not None
+                    and coll is not None
+                    and live_sparse.get(f"{connection}:{coll}") is False
+                ):
                     issues.append(
                         _issue(
                             "VB2013",
@@ -459,6 +546,34 @@ def _builtin_lints(tds: TDSFile) -> list[Any]:
     issues: list[Any] = []
     user_search = {t.name for t in tds.tools if t.kind == "search" and not t._synthetic}
     for cname, conn in tds.connections.items():
+        caps = CAPS_BY_BACKEND[conn.backend]
+        issues.extend(
+            _static_filter_capability_issues(
+                conn.builtin_defaults.static_filters,
+                caps,
+                base_path=f"connections.{cname}.builtin_defaults.static_filters",
+            )
+        )
+        if conn.builtin_tools.get_by_id and not caps.id_lookup:
+            issues.append(
+                _issue(
+                    "VB2025",
+                    f"backend '{conn.backend}' cannot preserve guardrails for exact-ID lookup",
+                    tool=f"get_{cname}_by_id",
+                )
+            )
+        if (
+            conn.builtin_tools.count
+            and conn.builtin_defaults.static_filters
+            and not caps.count_with_filter
+        ):
+            issues.append(
+                _issue(
+                    "VB2025",
+                    f"backend '{conn.backend}' does not support filtered count",
+                    tool=f"count_{cname}",
+                )
+            )
         if not conn.builtin_tools.semantic_search:
             continue
         bname = f"search_{cname}"
@@ -504,6 +619,16 @@ def _builtin_lints(tds: TDSFile) -> list[Any]:
 _SKIP_PATHS = frozenset({"id", "_id", "_score"})
 
 
+def _normalized_indexed_paths(info: Mapping[str, Any]) -> set[str] | None:
+    """Read the normalized live-introspection index field when provided."""
+    raw = info.get("indexed_paths")
+    if isinstance(raw, Mapping):
+        return {str(path) for path in raw}
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        return {str(path) for path in raw}
+    return None
+
+
 def embedding_dim(model: str, *, dims: int | None = None) -> int | None:
     """Known model size, explicit ``dims``, or None if unknown."""
     from vectorsmith_core.embed.models import resolve_dims
@@ -543,9 +668,15 @@ def live_contract_issues(
         info = native.get(key)
         if not info:
             continue
+        conn = tds.connections.get(plan.connection)
+        server_embedding = (
+            getattr(conn, "backend", None) == "weaviate"
+            and getattr(conn, "embedding_mode", "auto") != "client"
+            and not bool(info.get("self_provided", True))
+        )
         spec = plan.embed_spec or default_spec
         model = plan.embedding or spec.identity or default_model
-        if plan.kind in {"search", "pipeline"}:
+        if plan.kind in {"search", "pipeline"} and not server_embedding:
             dim = embedding_dim(str(model), dims=spec.dims)
             live_dim = info.get("dim")
             if dim is None:
@@ -566,18 +697,36 @@ def live_contract_issues(
                         path=coll,
                     )
                 )
+        filter_paths: set[str] = set()
+        for cond in plan.static_conds:
+            filter_paths |= ir_paths(cond)
+        for cond in getattr(plan, "static_must_not", None) or []:
+            filter_paths |= ir_paths(cond)
+        for cond in plan.param_conds:
+            filter_paths |= ir_paths(cond)
+        caps = CAPS_BY_BACKEND.get(getattr(conn, "backend", ""), None)
+        indexed_paths = _normalized_indexed_paths(info)
+        if caps is not None and caps.requires_explicit_index and indexed_paths is not None:
+            for path in sorted(filter_paths - _SKIP_PATHS - indexed_paths):
+                issues.append(
+                    _issue(
+                        "VB2026",
+                        f"filter path '{path}' has no explicit index on collection '{coll}'",
+                        tool=name,
+                        path=path,
+                    )
+                )
         fields = info.get("fields")
         if not isinstance(fields, list) or not fields:
             continue
-        field_set = {str(f) for f in fields}
-        wanted: set[str] = set()
-        for cond in plan.static_conds:
-            wanted |= ir_paths(cond)
-        for cond in getattr(plan, "static_must_not", None) or []:
-            wanted |= ir_paths(cond)
-        for cond in plan.param_conds:
-            wanted |= ir_paths(cond)
-        wanted |= {p for p in (plan.projection or []) if p}
+        field_set = {
+            str(field.get("path") or field.get("name") or "")
+            if isinstance(field, Mapping)
+            else str(field)
+            for field in fields
+        }
+        field_set.discard("")
+        wanted = filter_paths | {p for p in (plan.projection or []) if p}
         for path in sorted(wanted - _SKIP_PATHS):
             head = path.split(".", 1)[0]
             if path not in field_set and head not in field_set:

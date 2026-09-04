@@ -34,4 +34,10 @@ Equivalent: `connect("tools.yaml").as_openai_agents()`.
 
 Optional fields in `tools.yaml` are not OpenAI strict-mode schemas; the adapter sets `strict_json_schema=False`.
 
+VectorSmith inspects the OpenAI Agents run context for a `CallContext` or an
+identity mapping containing `principal`, `claims` / `roles`, `tenant_value`,
+`request_id`, and `deadline_s`. The application must populate that context from
+an authenticated request; absent identity remains backward compatible but
+cannot satisfy claim-based tenancy.
+
 Worked sample: [`examples/openai_agents/`](https://github.com/kjgpta/vectorsmith/tree/main/examples/openai_agents/).

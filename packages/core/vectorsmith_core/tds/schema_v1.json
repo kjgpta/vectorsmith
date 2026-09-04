@@ -2288,6 +2288,16 @@
         "credentials": {
           "$ref": "#/$defs/ConnectionCredentials"
         },
+        "embedding_mode": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "client",
+            "server"
+          ],
+          "title": "Embedding Mode",
+          "type": "string"
+        },
         "tenant": {
           "anyOf": [
             {

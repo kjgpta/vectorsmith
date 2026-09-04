@@ -35,5 +35,7 @@ def test_thirteen_shapes() -> None:
     assert "must_not" in compiled[1]
     assert compiled[8]["must"][0]["key"] == "tenant"
     assert compiled[9]["should"]
-    assert compiled[11]["must"]
+    assert compiled[11] == {
+        "must_not": [{"is_empty": {"key": "nullable_note"}}]
+    }
     assert compiled[12]["must"][0]["is_null"]["key"] == "nullable_note"

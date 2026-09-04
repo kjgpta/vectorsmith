@@ -214,6 +214,7 @@ class Engine:
     ) -> dict[str, Any]:
         from vectorsmith_core.introspect.sampling import infer_fields
         from vectorsmith_core.introspect.schema_export import to_schema_json
+        from vectorsmith_core.introspect.types import merge_fields
 
         adapter = await self._adapter(connection)
         names = collections or await adapter.list_collections()
@@ -221,14 +222,23 @@ class Engine:
         for c in names:
             native = await adapter.introspect_native(c)
             sample = await adapter.sample(c, sample_n)
-            fields = infer_fields(sample, redact_examples=redact_examples)
+            sampled_fields = infer_fields(sample, redact_examples=redact_examples)
+            native_fields = (native or {}).get("fields")
+            fields = merge_fields(
+                list(native_fields) if isinstance(native_fields, list) else [],
+                sampled_fields,
+            )
             cols.append(
                 {
                     "name": c,
                     "native": native,
                     "sampled_n": len(sample),
                     "fields": fields,
-                    "vector": {"sparse": bool((native or {}).get("sparse"))},
+                    "introspection": adapter.caps.introspection,
+                    "vector": {
+                        "sparse": bool((native or {}).get("sparse")),
+                        "dim": (native or {}).get("dim"),
+                    },
                 }
             )
         report = {
@@ -243,6 +253,7 @@ class Engine:
         from vectorsmith_core.api import Issue
         from vectorsmith_core.compilepkg.validator import live_contract_issues, validate
         from vectorsmith_core.introspect.sampling import infer_fields
+        from vectorsmith_core.introspect.types import merge_fields
 
         sparse: dict[str, bool] = {}
         native_map: dict[str, dict[str, Any]] = {}
@@ -263,16 +274,16 @@ class Engine:
                 collections = await adapter.list_collections()
                 for coll in collections:
                     info = dict((await adapter.introspect_native(coll)) or {})
-                    if not info.get("fields"):
-                        try:
-                            sample = await adapter.sample(coll, 50)
-                            info["fields"] = [
-                                str(f.get("path") or f.get("name") or "")
-                                for f in infer_fields(sample)
-                            ]
-                            info["fields"] = [p for p in info["fields"] if p]
-                        except Exception:  # noqa: BLE001 — sample is best-effort
-                            info.setdefault("fields", None)
+                    try:
+                        sample = await adapter.sample(coll, 50)
+                        sampled_fields = infer_fields(sample)
+                        native_fields = info.get("fields")
+                        info["fields"] = merge_fields(
+                            list(native_fields) if isinstance(native_fields, list) else [],
+                            sampled_fields,
+                        )
+                    except Exception:  # noqa: BLE001 — sample is best-effort
+                        info.setdefault("fields", None)
                     native_map[f"{name}:{coll}"] = info
                     sparse[f"{name}:{coll}"] = bool(info.get("sparse"))
             except Exception as exc:  # noqa: BLE001
@@ -307,6 +318,10 @@ class Engine:
         for name, plan in plans.items():
             if plan is None or plan.kind not in {"search", "pipeline"}:
                 continue
+            if isinstance(plan.collection, str) and plan.collection != "__param__":
+                adapter = await self._adapter(plan.connection)
+                if await adapter.uses_server_side_embedding(plan.collection):
+                    continue
             spec = plan.embed_spec
             if spec is None:
                 continue

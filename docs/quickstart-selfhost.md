@@ -52,4 +52,15 @@ vectorsmith serve tools.yaml --http 0.0.0.0:8080 --auth jwt \
 
 `--auth api_key` reads `--api-keys-file` (`{ "key": { "principal", "claims" } }`). Two replicas sharing builtin OAuth need `--auth-store redis` (`vectorsmith[auth-redis]`).
 
+## MCP protocol negotiation
+
+HTTP clients must initialize with one of `2024-11-05`, `2025-03-26`,
+`2025-06-18`, or `2025-11-25`. VectorSmith echoes a supported requested
+version. An unsupported or missing `protocolVersion` receives JSON-RPC error
+`-32022` whose data lists both the requested value and supported versions.
+
+Stdio hosts use the handshake-only MCP path, so a newer client such as GitHub
+Copilot may probe `server/discover` before `initialize` without locking the
+connection into an incompatible protocol era.
+
 Container / k8s / Cloud Run / Fly: [deploy-templates/](https://github.com/kjgpta/vectorsmith/blob/main/deploy-templates/README.md) · [Kubernetes](deploy/kubernetes.md).

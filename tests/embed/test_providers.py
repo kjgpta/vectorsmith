@@ -154,7 +154,9 @@ def test_embed_config_interpolation_and_secret_lint() -> None:
 
 
 @pytest.mark.asyncio
-async def test_http_provider_batches_and_errors() -> None:
+async def test_http_provider_batches_and_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     reset_providers()
     calls: list[list[str]] = []
 
@@ -197,7 +199,7 @@ async def test_http_provider_batches_and_errors() -> None:
             return None
 
     fake.AsyncClient = AsyncClient  # type: ignore[attr-defined]
-    sys.modules["httpx"] = fake
+    monkeypatch.setitem(sys.modules, "httpx", fake)
 
     provider = HttpEmbedProvider()
     cfg = EmbeddingConfig(

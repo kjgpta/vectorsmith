@@ -32,22 +32,60 @@ There is **no** first-party adapter for other stores (Elasticsearch, Redis, Open
 
 ## What each backend can do
 
-Same tools (`search`, `lookup`, `count`, `scroll`, `pipeline`) compile against every backend. Capability gates reject YAML that the store cannot run (`validate`, including `validate --live` for hybrid/sparse).
+Capability gates reject YAML that the adapter cannot run (`validate`, including
+`validate --live` for hybrid/sparse). A backend is `stable` only after its advertised
+surface passes the live parity, isolation, fault, and supported-version matrix.
+`experimental` means the implemented surface is usable but does not yet have that complete
+evidence; it does not turn unsupported behavior into a best-effort operation.
 
+The latest live server/client versions, per-backend pass/skip counts, covered
+edge cases, and remaining promotion blockers are in
+[backend conformance](conformance.md).
+
+<!-- BEGIN GENERATED: backend-capability-matrix -->
 | | Qdrant | pgvector | Chroma | Pinecone | Weaviate | Milvus |
 |---|---|---|---|---|---|---|
-| Dense search | yes | yes (vector mode) | yes | yes | yes | yes |
-| Hybrid / sparse | yes | no | no | yes | yes | yes |
-| Nested payload paths | yes | yes | no | no | yes | yes |
-| `exists` / `is_null` | yes | yes | no | no | yes | `exists` only |
-| `like` | no | yes | yes | no | yes | yes |
+| Dense search | yes | yes | yes | yes | yes | yes |
+| Support level | experimental | experimental | experimental | experimental | experimental | experimental |
+| Hybrid / sparse | yes | no | no | no | yes | no |
+| Nested payload paths | yes | yes | no | no | no | yes |
+| `exists` / `is_null` | yes | yes | no | no | no | no |
+| `like` | no | yes | no | no | yes | yes |
 | `text_match` in filter | yes | no | no | no | yes | no |
-| Filtered count | yes | yes | yes | yes | yes | yes |
+| Filtered count | yes | yes | yes | no | yes | yes |
 | Scroll | yes | yes | yes | no | yes | yes |
+| Guardrail-preserving exact-ID lookup | yes | yes | yes | no | yes | yes |
 | Introspection | typed | typed | none | none | typed | typed |
 | Server-side embedding | no | no | no | no | yes | no |
+<!-- END GENERATED: backend-capability-matrix -->
 
 **Every backend** accepts comparison ops: `eq` `ne` `gt` `gte` `lt` `lte` `in` `nin`.
+Qdrant, pgvector, Pinecone, Weaviate, and Milvus also support `keyword[]`
+containment through `contains_any` and `contains_all`; Chroma rejects array
+filter parameters. Empty containment operands are rejected.
+
+`typed` introspection combines native collection/catalog metadata with sampled
+payload fields and labels each field's provenance. `none` means that the store
+has no native typed schema contract; Chroma can still report sample-derived
+metadata fields, while Pinecone rejects deterministic sampling.
+
+Chroma does not support SQL-style wildcard or substring matching on scalar metadata,
+so `like` is rejected during validation. Chroma document bodies are returned in the
+reserved `_document` result field; metadata fields, including `content`, remain unchanged.
+Its lower-is-better distances are exposed as higher-is-better scores using
+`1 / (1 + max(0, distance))`.
+
+Pinecone currently supports dense vector search and namespace isolation. VectorSmith rejects
+filter-only lookup/scroll, filtered count, deterministic sampling, and hybrid mode instead of
+returning partial or unfiltered results. Use a namespace for hard tenant isolation; metadata
+guardrails alone cannot make Pinecone's ID fetch safe.
+
+Weaviate `embedding_mode` may be `client`, `server`, or `auto` (the default).
+`auto` uses server-side text embedding only when collection introspection finds
+a configured vectorizer; otherwise VectorSmith embeds locally. `server` fails
+closed when the target collection is self-provided. Weaviate nested objects can
+be stored, but dotted object-property filters are not advertised because the
+supported server generation rejects them.
 
 **pgvector table mode** (`mode: table` or `vector_column: null`) is for lookup / count / scroll / pipeline only — no `kind: search` (`VB2016`).
 

@@ -1,6 +1,6 @@
 [project]
 name = "vectorsmith-workspace"
-version = "0.2.0"
+version = "0.2.1"
 description = "VectorSmith workspace root (not published)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,9 @@ dev = [
     "langchain-core>=0.3",
     "PyJWT>=2.8",
     "cryptography>=42",
+]
+conformance = [
+    "vectorsmith-core[qdrant,pgvector,chroma,pinecone,weaviate,milvus]",
 ]
 
 [tool.ruff]
@@ -88,4 +91,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "conformance: adapter conformance tests (testcontainers)",
+    "capability: direct positive or rejection evidence for a public capability",
+    "fault: timeout, authentication, malformed-response, and cleanup contracts",
+    "version: minimum, pinned, and newest-tested client boundary contracts",
 ]

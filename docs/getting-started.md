@@ -18,7 +18,8 @@ cd vectorsmith
 uv sync
 ```
 
-From PyPI, install the extra for **your** store — [which stores ship](vector-stores.md):
+From PyPI, install the extra for **your** store — see the
+[available adapters and support levels](vector-stores.md):
 
 ```bash
 pip install "vectorsmith[qdrant]"      # or pgvector, chroma, pinecone, weaviate, milvus
@@ -50,7 +51,11 @@ uv run vectorsmith validate examples/qdrant_invoices/tools.invoices.yaml \
   --env-file examples/qdrant_invoices/.env.example
 ```
 
-`--live` also pings the store (dims, hybrid/sparse). `--strict` treats warnings as failure (exit `1`). Errors are exit `2`.
+`--live` also pings the store (dims, hybrid/sparse). `--strict` treats warnings
+as failure (exit `1`). Errors are exit `2`. All current adapters are
+experimental and therefore emit `VB2024`, so strict validation is expected to
+remain non-zero until the target backend earns stable status. See
+[backend conformance](conformance.md).
 
 ## 4. Call one tool without an agent
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from vectorsmith.runtime import BoundTools, connect
+from vectorsmith_core.api import CallContext
 
 
 class AnthropicToolset:
@@ -25,8 +26,14 @@ class AnthropicToolset:
     def names(self) -> list[str]:
         return self._bound.names
 
-    async def execute(self, name: str, tool_input: Mapping[str, Any] | None = None) -> str:
-        result = await self._bound.call(name, tool_input)
+    async def execute(
+        self,
+        name: str,
+        tool_input: Mapping[str, Any] | None = None,
+        *,
+        ctx: CallContext | None = None,
+    ) -> str:
+        result = await self._bound.call(name, tool_input, ctx=ctx)
         return json.dumps(result)
 
     async def aclose(self) -> None:

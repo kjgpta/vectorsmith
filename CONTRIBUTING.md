@@ -13,7 +13,23 @@ uv run pytest -m "not conformance"
 uv run lint-imports
 ```
 
-`uv run mypy` covers `vectorsmith_core`. Adapter conformance tests (`pytest -m conformance`) need `docker compose up -d` and are not required for typical PRs.
+`uv run mypy` covers `vectorsmith_core`. Adapter conformance tests need all
+store SDKs plus the pinned local services:
+
+```bash
+uv sync --group dev --group conformance --frozen
+docker compose up -d
+PYTHONPATH=packages/core:packages/cli:. \
+  uv run pytest tests/conformance --backend all --tb=short
+docker compose down --volumes
+```
+
+Use one backend name (for example `--backend chroma`) for a focused run.
+Conformance is not required for a typical PR while every backend remains
+experimental; CI exposes it as a non-blocking diagnostic matrix. An advertised
+capability must pass—do not weaken the oracle or threshold to make a backend
+green. If the store cannot satisfy the contract, update its capability claim.
+Details: [backend conformance](docs/conformance.md).
 
 ## Layout
 
@@ -24,6 +40,7 @@ uv run lint-imports
 | `docs/` | User documentation |
 | `examples/` | Runnable samples |
 | `tests/unit` | Fast tests (CI) |
+| `tests/conformance` | Deterministic live contract and backend-independent oracle |
 
 `vectorsmith_core` must not import `vectorsmith` or `vectorsmith_cli` (enforced by import-linter).
 

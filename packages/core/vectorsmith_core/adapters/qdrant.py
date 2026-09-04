@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from typing import Any, ClassVar
 
 from vectorsmith_core.adapters.base import RowBatch, SearchRequest, VectorBackendAdapter
 from vectorsmith_core.adapters.capabilities import QDRANT_CAPS
-from vectorsmith_core.errors import BackendUnreachable
+from vectorsmith_core.errors import BackendUnreachable, InvalidArgumentsError
 from vectorsmith_core.ir.filter import And, Cond, IRNode, Or
 
 
@@ -38,6 +40,19 @@ def _vector_dim(info: Any) -> int | None:
     return None
 
 
+def _qdrant_dtype(value: object) -> str:
+    text = str(getattr(value, "data_type", value) or "").lower()
+    if "integer" in text:
+        return "integer"
+    if "float" in text:
+        return "float"
+    if "bool" in text:
+        return "boolean"
+    if "datetime" in text:
+        return "datetime"
+    return "keyword"
+
+
 def _match(cond: Cond) -> dict[str, Any]:
     path, op, value = cond.path, cond.op, cond.value
     if op in {"eq"}:
@@ -48,6 +63,15 @@ def _match(cond: Cond) -> dict[str, Any]:
         return {"key": path, "match": {"any": value}}
     if op == "nin":
         return {"key": path, "match": {"except": value}}
+    if op == "contains_any":
+        return {"key": path, "match": {"any": value}}
+    if op == "contains_all":
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        if not values:
+            raise InvalidArgumentsError(detail="contains_all requires at least one value")
+        return {
+            "must": [{"key": path, "match": {"value": item}} for item in values]
+        }
     if op in {"gt", "gte", "lt", "lte"}:
         rng: dict[str, Any] = {}
         if op == "gt":
@@ -61,10 +85,18 @@ def _match(cond: Cond) -> dict[str, Any]:
         return {"key": path, "range": rng}
     if op == "exists":
         return (
-            {"is_empty": {"key": path}} if not value else {"key": path, "match": {"value": value}}
+            {"must_not": [{"is_empty": {"key": path}}]}
+            if value
+            else {"is_empty": {"key": path}}
         )
     if op == "is_null":
-        return {"is_null": {"key": path}}
+        return (
+            {"is_null": {"key": path}}
+            if value is not False
+            else {"must_not": [{"is_null": {"key": path}}]}
+        )
+    if op == "text_match":
+        return {"key": path, "match": {"text": str(value)}}
     raise BackendUnreachable(detail=f"unsupported op {op}")  # should be VB2004 earlier
 
 
@@ -75,6 +107,7 @@ class QdrantAdapter(VectorBackendAdapter):
         self.url = url
         self.api_key = api_key
         self._client: Any = None
+        self._sparse_model: Any = None
 
     def _sdk(self) -> Any:
         if self._client is not None:
@@ -95,14 +128,16 @@ class QdrantAdapter(VectorBackendAdapter):
         else:
             port = 6333
         key = self.api_key or None
-        self._client = AsyncQdrantClient(
-            url=self.url,
-            api_key=key,
-            port=port,
-            prefer_grpc=False,
-            timeout=60,
-            check_compatibility=False,
-        )
+        kwargs: dict[str, Any] = {
+            "url": self.url,
+            "api_key": key,
+            "port": port,
+            "prefer_grpc": False,
+            "timeout": 60,
+        }
+        if "check_compatibility" in inspect.signature(AsyncQdrantClient).parameters:
+            kwargs["check_compatibility"] = False
+        self._client = AsyncQdrantClient(**kwargs)
         return self._client
 
     def compile_filter(self, node: IRNode | None) -> object:
@@ -112,6 +147,8 @@ class QdrantAdapter(VectorBackendAdapter):
             piece = _match(node)
             if "must_not" in piece:
                 return {"must_not": piece["must_not"]}
+            if "must" in piece:
+                return {"must": piece["must"]}
             return {"must": [piece]}
         if isinstance(node, And):
             must: list[Any] = []
@@ -142,28 +179,43 @@ class QdrantAdapter(VectorBackendAdapter):
             raise BackendUnreachable(detail=str(exc)) from exc
 
     async def list_collections(self) -> list[str]:
-        res = await self._sdk().get_collections()
-        return [c.name for c in res.collections]
+        try:
+            res = await self._sdk().get_collections()
+            return [c.name for c in res.collections]
+        except BackendUnreachable:
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
 
     async def search(self, req: SearchRequest) -> RowBatch:
+        try:
+            return await self._search(req)
+        except (BackendUnreachable, InvalidArgumentsError):
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
+
+    async def _search(self, req: SearchRequest) -> RowBatch:
+        if req.vector is not None and req.offset is not None:
+            raise InvalidArgumentsError(detail="Qdrant does not support offsets for vector search")
         client = self._sdk()
-        qfilter = self.compile_filter(
-            req.filter_ir if isinstance(req.filter_ir, (And, Or, Cond)) else None
-        )
+        filter_ir = req.filter_ir if isinstance(req.filter_ir, (And, Or, Cond)) else None
+        point_id, remaining_filter, impossible = _split_lookup_id(filter_ir)
+        if impossible:
+            return RowBatch(rows=[], exhausted=True)
+        if req.vector is not None:
+            point_id = None
+            remaining_filter = filter_ir
+        qfilter = self.compile_filter(remaining_filter)
+        if point_id is not None:
+            assert isinstance(qfilter, (dict, type(None)))
+            qfilter = dict(qfilter or {})
+            qfilter["must"] = [*(qfilter.get("must") or []), {"has_id": [point_id]}]
         from qdrant_client.http import models as qm
 
         native = None
         if isinstance(qfilter, dict):
             native = qm.Filter(**qfilter)
-        point_id = _lookup_id(req.filter_ir)
-        if req.vector is None and point_id is not None:
-            points = await client.retrieve(
-                collection_name=req.collection,
-                ids=[point_id],
-                with_payload=_payload_arg(req.projection),
-                with_vectors=False,
-            )
-            return RowBatch(rows=[_row(p, None) for p in points], exhausted=True)
         if req.mode == "hybrid":
             native_info = await self.introspect_native(req.collection)
             if not native_info or not native_info.get("sparse"):
@@ -172,15 +224,16 @@ class QdrantAdapter(VectorBackendAdapter):
                 )
             return await self._hybrid_search(client, req, native)
         if req.vector is None:
+            fetch_limit = req.limit + (req.offset or 0)
             points, _ = await client.scroll(
                 collection_name=req.collection,
                 scroll_filter=native,
-                limit=req.limit,
+                limit=fetch_limit,
                 with_payload=_payload_arg(req.projection),
                 with_vectors=False,
             )
-            rows = [_row(p, None) for p in points]
-            return RowBatch(rows=rows, exhausted=len(points) < req.limit)
+            rows = [_row(p, None) for p in points[req.offset or 0 :]]
+            return RowBatch(rows=rows, exhausted=len(points) < fetch_limit)
         extra: dict[str, Any] = {}
         if req.min_score is not None:
             extra["score_threshold"] = req.min_score
@@ -205,7 +258,10 @@ class QdrantAdapter(VectorBackendAdapter):
                 with_payload=_payload_arg(req.projection),
                 **extra,
             )
-        rows = [_row(h, getattr(h, "score", None)) for h in hits]
+        rows = [
+            _row(h, getattr(h, "score", None) if req.with_score else None)
+            for h in hits
+        ]
         return RowBatch(rows=rows, exhausted=True)
 
     async def _hybrid_search(self, client: Any, req: SearchRequest, native: object) -> RowBatch:
@@ -215,15 +271,17 @@ class QdrantAdapter(VectorBackendAdapter):
         if req.vector is not None:
             prefetch.append(qm.Prefetch(query=req.vector, limit=max(req.limit * 2, 20)))
         if req.query_text:
-            try:
-                prefetch.append(
-                    qm.Prefetch(
-                        query=qm.Document(text=req.query_text, model="qdrant/bm25"),
-                        limit=max(req.limit * 2, 20),
-                    )
+            sparse = await asyncio.to_thread(self._sparse_vector, req.query_text)
+            prefetch.append(
+                qm.Prefetch(
+                    query=qm.SparseVector(
+                        indices=[int(value) for value in sparse.indices],
+                        values=[float(value) for value in sparse.values],
+                    ),
+                    using="text",
+                    limit=max(req.limit * 2, 20),
                 )
-            except Exception:
-                prefetch.append(qm.Prefetch(query=req.vector, limit=max(req.limit * 2, 20)))
+            )
         query: object
         if hasattr(qm, "FusionQuery"):
             query = qm.FusionQuery(fusion=qm.Fusion.RRF)
@@ -232,6 +290,8 @@ class QdrantAdapter(VectorBackendAdapter):
         extra: dict[str, Any] = {}
         if req.min_score is not None:
             extra["score_threshold"] = req.min_score
+        if req.search_ef is not None:
+            extra["search_params"] = qm.SearchParams(hnsw_ef=req.search_ef)
         res = await client.query_points(
             collection_name=req.collection,
             prefetch=prefetch or None,
@@ -242,20 +302,46 @@ class QdrantAdapter(VectorBackendAdapter):
             **extra,
         )
         hits = getattr(res, "points", res)
-        rows = [_row(h, getattr(h, "score", None)) for h in hits]
+        rows = [
+            _row(h, getattr(h, "score", None) if req.with_score else None)
+            for h in hits
+        ]
         return RowBatch(rows=rows, exhausted=True)
 
-    async def count(self, collection: str, filter_ir: IRNode | None) -> int:
-        qfilter = self.compile_filter(filter_ir)
-        from qdrant_client.http import models as qm
+    def _sparse_vector(self, text: str) -> Any:
+        if self._sparse_model is None:
+            try:
+                from fastembed import SparseTextEmbedding
+            except ImportError as exc:
+                raise InvalidArgumentsError(
+                    detail="Qdrant hybrid search requires FastEmbed sparse support"
+                ) from exc
+            self._sparse_model = SparseTextEmbedding("Qdrant/bm25")
+        return next(iter(self._sparse_model.embed([text])))
 
-        native = qm.Filter(**qfilter) if isinstance(qfilter, dict) else None
-        res = await self._sdk().count(collection_name=collection, count_filter=native)
-        return int(res.count)
+    async def count(self, collection: str, filter_ir: IRNode | None) -> int:
+        try:
+            qfilter = self.compile_filter(filter_ir)
+            from qdrant_client.http import models as qm
+
+            native = qm.Filter(**qfilter) if isinstance(qfilter, dict) else None
+            res = await self._sdk().count(collection_name=collection, count_filter=native)
+            return int(res.count)
+        except BackendUnreachable:
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
 
     async def sample(self, collection: str, n: int) -> list[dict[str, Any]]:
-        points, _ = await self._sdk().scroll(collection_name=collection, limit=n, with_payload=True)
-        return [_row(p, None) for p in points]
+        try:
+            points, _ = await self._sdk().scroll(
+                collection_name=collection, limit=n, with_payload=True
+            )
+            return [_row(p, None) for p in points]
+        except BackendUnreachable:
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
 
     async def introspect_native(self, collection: str | None = None) -> dict[str, Any] | None:
         if collection is None:
@@ -267,7 +353,27 @@ class QdrantAdapter(VectorBackendAdapter):
         if params is not None:
             sparse_cfg = getattr(getattr(params, "params", params), "sparse_vectors", None)
             sparse = bool(sparse_cfg)
-        return {"sparse": sparse, "indexed": True, "dim": _vector_dim(info)}
+        payload_schema = getattr(info, "payload_schema", None) or {}
+        fields = [
+            {
+                "path": str(path),
+                "dtype": _qdrant_dtype(schema),
+                "nullable": True,
+                "indexed": True,
+                "provenance": "native",
+            }
+            for path, schema in payload_schema.items()
+        ]
+        return {
+            "sparse": sparse,
+            "dim": _vector_dim(info),
+            "fields": fields,
+            "indexed_paths": {
+                str(path): str(getattr(schema, "data_type", schema))
+                for path, schema in payload_schema.items()
+            },
+            "provenance": "native",
+        }
 
     async def aclose(self) -> None:
         if self._client is not None:
@@ -277,33 +383,50 @@ class QdrantAdapter(VectorBackendAdapter):
             self._client = None
 
 
-def _lookup_id(node: object) -> int | str | None:
-    """Builtin get_by_id filters on path ``id`` — that is the Qdrant point id."""
+def _split_lookup_id(
+    node: IRNode | None,
+) -> tuple[int | str | None, IRNode | None, bool]:
+    """Extract a native point ID while preserving all conjunctive guardrails."""
+    if isinstance(node, Cond):
+        if node.path != "id" or node.op != "eq":
+            return None, node, False
+        value = node.value
+        if isinstance(value, bool) or value is None:
+            return None, None, True
+        if isinstance(value, int):
+            return value, None, False
+        if isinstance(value, str) and value.isdigit():
+            return int(value), None, False
+        if isinstance(value, str) and value:
+            return value, None, False
+        return None, None, True
     if isinstance(node, And):
-        found: int | str | None = None
+        point_id: int | str | None = None
+        remaining: list[IRNode] = []
         for child in node.children:
-            hit = _lookup_id(child)
-            if hit is not None:
-                found = hit
-        return found
-    if not isinstance(node, Cond) or node.path != "id" or node.op != "eq":
-        return None
-    value = node.value
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    if isinstance(value, str) and value:
-        return value
-    return None
+            child_id, child_remaining, impossible = _split_lookup_id(child)
+            if impossible:
+                return None, None, True
+            if child_id is not None:
+                if point_id is not None and point_id != child_id:
+                    return None, None, True
+                point_id = child_id
+            if child_remaining is not None:
+                remaining.append(child_remaining)
+        if not remaining:
+            rest: IRNode | None = None
+        elif len(remaining) == 1:
+            rest = remaining[0]
+        else:
+            rest = And(tuple(remaining))
+        return point_id, rest, False
+    return None, node, False
 
 
 def _row(point: Any, score: float | None) -> dict[str, Any]:
     payload = dict(getattr(point, "payload", None) or {})
     pid = getattr(point, "id", None)
-    row: dict[str, Any] = {"_id": pid, **payload}
+    row: dict[str, Any] = {**payload, "_id": pid}
     if score is not None:
         row["_score"] = score
     return row

@@ -21,9 +21,13 @@ SCHEMA_V1 = {
                 "properties": {
                     "name": {"type": "string"},
                     "sampled_n": {"type": "integer"},
+                    "introspection": {"type": "string"},
                     "vector": {
                         "type": "object",
-                        "properties": {"sparse": {"type": "boolean"}},
+                        "properties": {
+                            "sparse": {"type": "boolean"},
+                            "dim": {"type": ["integer", "null"]},
+                        },
                     },
                     "fields": {"type": "array"},
                 },
@@ -46,7 +50,11 @@ def to_schema_json(report: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": col.get("name"),
                 "sampled_n": col.get("sampled_n", 0),
-                "vector": {"sparse": bool((col.get("vector") or {}).get("sparse"))},
+                "introspection": col.get("introspection", "none"),
+                "vector": {
+                    "sparse": bool((col.get("vector") or {}).get("sparse")),
+                    "dim": (col.get("vector") or {}).get("dim"),
+                },
                 "fields": col.get("fields") or [],
                 "native": col.get("native"),
             }

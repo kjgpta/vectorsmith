@@ -34,7 +34,8 @@ def test_pinecone_tenant_filter() -> None:
 
 def test_weaviate_tenant_filter() -> None:
     native = WeaviateAdapter(creds={}).compile_filter(TENANT)
-    assert native == {"path": ["tenant"], "operator": "eq", "value": "acme"}
+    assert "target='tenant'" in repr(native)
+    assert "value='acme'" in repr(native)
 
 
 def test_milvus_tenant_filter() -> None:
@@ -50,4 +51,4 @@ def test_pgvector_tenant_filter() -> None:
     spec = PgvectorConn(backend="pgvector", dsn="postgresql://x", table="invoices")
     compiled = PgvectorAdapter(spec, {}).compile_filter(TENANT)
     assert isinstance(compiled, dict)
-    assert compiled["params"] == ["acme"]
+    assert compiled["params"] == [["tenant"], "acme"]

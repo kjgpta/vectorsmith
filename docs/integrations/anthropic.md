@@ -44,4 +44,20 @@ finally:
 
 `vs.tools` is the list of `{name, description, input_schema}` dicts. `vs.execute` runs the compiled YAML tool.
 
+For authenticated request-scoped tenancy, pass an explicit context:
+
+```python
+from vectorsmith_core.api import CallContext
+
+ctx = CallContext(
+    request_id="request-123",
+    principal="alice",
+    claims={"roles": ["viewer"]},
+    tenant_value="acme",
+)
+output = await vs.execute(block.name, block.input, ctx=ctx)
+```
+
+The application—not the model-provided tool input—must establish this identity.
+
 Worked sample (full loop): [`examples/anthropic_agent/`](https://github.com/kjgpta/vectorsmith/tree/main/examples/anthropic_agent/).

@@ -11,6 +11,7 @@ _endpoint = "http://localhost:4318"
 _exporter = "otlp"
 _recorded: list[tuple[str, dict[str, Any]]] = []
 _stack: list[str] = []
+_otel_provider: Any = None
 
 
 class _Noop:
@@ -60,7 +61,11 @@ def configure_tracing(
     endpoint: str | None = None,
     exporter: str | None = None,
 ) -> None:
-    global _enabled, _service, _endpoint, _exporter
+    global _enabled, _service, _endpoint, _exporter, _otel_provider
+    if not enabled and _otel_provider is not None:
+        with suppress(Exception):
+            _otel_provider.shutdown()
+        _otel_provider = None
     _enabled = bool(enabled)
     _service = service_name
     if endpoint:
@@ -90,6 +95,9 @@ def _span_exporter() -> Any:
 
 
 def _try_otel() -> None:
+    global _otel_provider
+    if _otel_provider is not None:
+        return
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
@@ -100,6 +108,10 @@ def _try_otel() -> None:
         provider = TracerProvider(resource=resource)
         provider.add_span_processor(BatchSpanProcessor(_span_exporter()))
         trace.set_tracer_provider(provider)
+        if trace.get_tracer_provider() is provider:
+            _otel_provider = provider
+        else:
+            provider.shutdown()
     except Exception:
         return
 

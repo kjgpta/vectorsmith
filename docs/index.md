@@ -51,9 +51,10 @@ Same file either way. The agent never sees the store URL, the API key, or hidden
 | | |
 |---|---|
 | [Vector stores](vector-stores.md) | Qdrant, pgvector, Chroma, Pinecone, Weaviate, Milvus |
+| [Backend conformance](conformance.md) | Live version matrix, tested contracts, skips, and stability blockers |
 | [tools.yaml](tools-yaml-reference.md) | Every field, operators, pipelines, `VBxxxx` |
 | [Library surface](library.md) | Extras, HTTP routes, exceptions, public imports |
-| [CLI](cli.md) | `init` · `validate` · `serve` · `test` · `introspect` · `migrate` · `drafts` · `approve` · `auth` |
+| [CLI](cli.md) | Runtime, validation, approval, and experimental discover/eval/drift commands |
 | [Enterprise](enterprise.md) | JWT, tenancy, RBAC, credentials, audit, rate limits |
 | [Security hardening](security-hardening.md) | `--enterprise` checklist |
 | [Embedding providers](embedding-providers.md) | FastEmbed, OpenAI, Azure, Cohere, HTTP |
@@ -93,6 +94,11 @@ Also: `embed-openai` · `embed-cohere` · `auth-jwt` · `auth-redis` · `otel` �
 
 **0.2.0** — production HTTP MCP server. Read-only tools from YAML. `serve --http` applies tenancy, RBAC, credential resolvers, audit, tracing, metrics, rate limits, and `profiles.enterprise` at process start. Application code uses `from vectorsmith import load_tools` or `connect` — do not import `Engine`.
 
-Changelog: [0.2.0](changelog.md).
+**Unreleased Phase 2 foundation** — all six adapters are explicitly
+experimental. The generated conformance report records current applicable
+passes, capability-gated skips, failures, and exact client/server versions. It
+also adds MCP compatibility, Python identity context, bounded metrics, semantic
+approval, and opt-in local `discover`, `eval`, and `drift` prototypes. See
+[backend conformance](conformance.md) and the [changelog](changelog.md).
 
 Source: [github.com/kjgpta/vectorsmith](https://github.com/kjgpta/vectorsmith).

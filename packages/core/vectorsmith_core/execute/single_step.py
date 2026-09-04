@@ -85,8 +85,6 @@ async def execute_single(
 
     texts: list[str] = []
     if query_text:
-        if embed is None:
-            raise InvalidArgumentsError(detail="query provided but no embed provider configured")
         texts = [str(query_text)]
         expand_spec = plan.expand
         if expand_spec is not None and getattr(expand_spec, "enabled", False):
@@ -264,7 +262,7 @@ async def _embed_one(embed: Any, text: str, plan: Any) -> list[float]:
 
 async def _search_variants(
     adapter: VectorBackendAdapter,
-    embed: Any,
+    embed: Any | None,
     plan: Any,
     texts: list[str],
     *,
@@ -275,8 +273,16 @@ async def _search_variants(
     from vectorsmith_core.observe.tracing import start_span
 
     merged: dict[str, dict[str, Any]] = {}
+    server_side_check = getattr(adapter, "uses_server_side_embedding", None)
+    server_side = (
+        bool(await server_side_check(collection))
+        if callable(server_side_check)
+        else False
+    )
+    if not server_side and embed is None:
+        raise InvalidArgumentsError(detail="query provided but no embed provider configured")
     for text in texts:
-        vector = await _embed_one(embed, text, plan)
+        vector = None if server_side else await _embed_one(embed, text, plan)
         with start_span(
             "vectorsmith.adapter.search",
             backend=getattr(adapter, "name", None) or getattr(adapter, "backend", None),

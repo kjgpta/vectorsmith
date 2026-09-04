@@ -41,6 +41,19 @@ Pick **one** isolation layer unless you intend both:
 
 Copy-paste: [`examples/enterprise/tools.yaml`](https://github.com/kjgpta/vectorsmith/tree/main/examples/enterprise/tools.yaml) (claim) and [`tools.static.yaml`](https://github.com/kjgpta/vectorsmith/tree/main/examples/enterprise/tools.static.yaml) (static).
 
+### Trust profiles
+
+- Stdio has no authenticated caller identity. Use static filters and one
+  process/catalog per security boundary.
+- HTTP derives request context from JWT, API-key, or builtin OAuth state and is
+  the profile for shared claim/header tenancy.
+- Python in-process calls may pass `CallContext`, but the embedding application
+  is responsible for authenticating the caller before constructing it.
+
+These profiles are not interchangeable. Details and framework mappings:
+[security hardening](security-hardening.md#identity-profiles-are-not-interchangeable)
+and [Python API](python-api.md).
+
 ## Auth and RBAC
 
 HTTP `--auth jwt` validates RS256 via JWKS (`vectorsmith[auth-jwt]`). `--auth api_key` reads a keys file. `--auth-store redis` shares builtin OAuth tokens across replicas. `GET /readyz` fetches JWKS so a down IdP takes the replica out of rotation.
@@ -70,7 +83,9 @@ Inject a `fetch` callable on `build_credential_resolver` for tests. Details: [to
 
 ## Production checklist
 
-1. `validate --enterprise --strict` in CI
+1. Run `validate --enterprise --strict` in CI. It intentionally remains
+   non-zero for experimental backend warning `VB2024`; stable deployment claims
+   require the [backend conformance](conformance.md) gate to pass.
 2. `serve --http` with `--auth jwt` or `api_key` (never `--auth none` on a public bind)
 3. `GET /readyz` as the readiness probe; `GET /healthz` for liveness
 4. `--log-format json` and `observability.audit.enabled`

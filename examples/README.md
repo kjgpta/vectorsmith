@@ -43,6 +43,39 @@ uv run vectorsmith serve examples/qdrant_invoices/tools.tickets.yaml --name tick
 
 `load_project()` (authoring API) interpolates the env map you pass, synthesizes builtins, validates, and compiles. The CLI `validate` / `serve` / `test` commands interpolate **only** `--env-file` (they do not merge the process environment).
 
+### Experimental contract lifecycle
+
+Use live introspection to produce a review-only discovery report:
+
+```bash
+uv run vectorsmith discover examples/qdrant_invoices/tools.invoices.yaml \
+  --connection invoices --experimental \
+  --env-file examples/qdrant_invoices/.env.example \
+  --out tools.discovered.drafts.yaml
+```
+
+The output is not the active catalog and is separate from
+`./tools.drafts.yaml`. After deliberately placing a reviewed proposal into the
+normal draft workflow, preview approval without mutation:
+
+```bash
+uv run vectorsmith approve TOOL_NAME \
+  --file examples/qdrant_invoices/tools.invoices.yaml --dry-run
+```
+
+Checked-in scenario and schema files can then be exercised locally:
+
+```bash
+uv run vectorsmith eval examples/qdrant_invoices/tools.invoices.yaml \
+  scenarios.yaml --experimental --env-file examples/qdrant_invoices/.env.example
+uv run vectorsmith drift examples/qdrant_invoices/tools.invoices.yaml \
+  schema.json --connection invoices --experimental \
+  --env-file examples/qdrant_invoices/.env.example
+```
+
+`eval` and `drift` write JSON evidence and return exit `1` on failed scenarios
+or detected drift. None of these commands auto-promotes a tool.
+
 ## `enterprise`
 
 Reference catalogs: JWT auth defaults, RBAC, audit, `tds_version: "2"`. Claim vs static tenancy are **separate files** so copy-paste does not AND both layers.
@@ -60,7 +93,11 @@ uv run vectorsmith validate examples/enterprise/tools.yaml --enterprise --strict
   --env-file examples/enterprise/.env.example
 ```
 
-`--enterprise` warns **VE007** while the file uses FastEmbed (swap to a remote embedder for a clean gate). The same `profiles.enterprise` block refuses `serve` / `connect` if tenancy or limits fail. Docs: [enterprise](../docs/enterprise.md), [hardening](../docs/security-hardening.md), [HTTP](../docs/quickstart-selfhost.md).
+`--enterprise` warns **VE007** while the file uses FastEmbed and **VB2024**
+while Qdrant remains experimental, so `--strict` is intentionally non-zero.
+The same `profiles.enterprise` block refuses `serve` / `connect` if tenancy or
+limits fail. Docs: [enterprise](../docs/enterprise.md),
+[hardening](../docs/security-hardening.md), [HTTP](../docs/quickstart-selfhost.md).
 
 ## Agent frameworks (in-process `load_tools`)
 

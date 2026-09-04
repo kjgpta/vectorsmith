@@ -155,6 +155,7 @@ class WeaviateConn(_ConnBase):
     url: str
     api_key: str | None = None
     tenant: str | None = None
+    embedding_mode: Literal["auto", "client", "server"] = "auto"
 
 
 class MilvusConn(_ConnBase):

@@ -48,6 +48,18 @@ flowchart TB
 
 The executor (`Engine`) runs **inside** `serve`, `test`, `validate --live`, and `connect` / `load_tools`. Application code does not import it.
 
+Backend behavior is not inferred from a shared interface alone. Each adapter
+has explicit capability and support-level metadata. The live
+[conformance suite](conformance.md) seeds one deterministic source dataset and
+compares native filtering, isolation, pagination, counts, projection, and
+ranking with an independent oracle. Unsupported behavior is rejected during
+compilation or capability-gated in tests.
+
+The experimental `discover`, `eval`, and `drift` commands form a local
+contract-lifecycle prototype around the same compiler and executor. They can
+propose drafts, exercise checked-in scenarios, and compare schema snapshots,
+but they cannot auto-promote a tool.
+
 ## Two doors, one contract
 
 | Door | Process | Who |

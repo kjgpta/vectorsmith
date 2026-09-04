@@ -159,3 +159,61 @@ async def test_qdrant_passes_score_threshold(monkeypatch: pytest.MonkeyPatch) ->
     )
     assert seen["score_threshold"] == 0.35
     assert seen["search_params"].hnsw_ef == 128
+
+
+@pytest.mark.asyncio
+async def test_qdrant_hybrid_passes_hnsw_ef(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    class Value:
+        def __init__(self, **kwargs: Any) -> None:
+            self.__dict__.update(kwargs)
+
+    class SearchParams(Value):
+        pass
+
+    class FusionQuery(Value):
+        pass
+
+    fake_qm = SimpleNamespace(
+        SearchParams=SearchParams,
+        Prefetch=Value,
+        SparseVector=Value,
+        FusionQuery=FusionQuery,
+        Fusion=SimpleNamespace(RRF="rrf"),
+    )
+    fake_http = SimpleNamespace(models=fake_qm)
+    monkeypatch.setitem(sys.modules, "qdrant_client", SimpleNamespace(http=fake_http))
+    monkeypatch.setitem(sys.modules, "qdrant_client.http", fake_http)
+    monkeypatch.setitem(sys.modules, "qdrant_client.http.models", fake_qm)
+
+    from vectorsmith_core.adapters.qdrant import QdrantAdapter
+
+    seen: dict[str, Any] = {}
+
+    class Client:
+        async def query_points(self, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            return SimpleNamespace(points=[])
+
+    adapter = QdrantAdapter(url="http://localhost:6333")
+    monkeypatch.setattr(
+        adapter,
+        "_sparse_vector",
+        lambda text: SimpleNamespace(indices=[1], values=[1.0]),
+    )
+    await adapter._hybrid_search(
+        Client(),
+        SearchRequest(
+            collection="invoices",
+            vector=[0.1, 0.2],
+            query_text="invoice one",
+            mode="hybrid",
+            search_ef=96,
+        ),
+        None,
+    )
+
+    assert seen["search_params"].hnsw_ef == 96
+    assert seen["prefetch"][1].using == "text"

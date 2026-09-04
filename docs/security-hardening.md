@@ -7,6 +7,13 @@ vectorsmith validate tools.yaml --enterprise --strict --env-file .env
 vectorsmith validate tools.yaml --policy-builtin enterprise,pci,soc2
 ```
 
+The HTTP security/runtime surface and backend stability are separate claims.
+All current adapters emit experimental warning `VB2024`, so
+`--enterprise --strict` remains non-zero until the selected backend completes
+its live fault and supported-version matrix. Do not suppress that warning to
+describe an adapter as stable. Evidence:
+[backend conformance](conformance.md).
+
 ## `--enterprise` rules
 
 | Code | Rule |
@@ -33,6 +40,23 @@ vectorsmith validate tools.yaml --policy-builtin enterprise,pci,soc2
 8. Two replicas + Redis auth store ([Kubernetes](deploy/kubernetes.md))
 9. `--shutdown-grace-s 30` and `--log-format json`
 10. CI: `validate --enterprise --strict`
+
+## Identity profiles are not interchangeable
+
+- **Desktop / stdio:** there is no authenticated request identity on the MCP pipe. Use
+  literal `static_filters` for one fixed tenant and run a separate process/catalog for each
+  security boundary.
+- **HTTP:** authenticated JWT or API-key claims can populate `CallContext`; claim/header
+  tenancy and RBAC are enforced per request. This is the profile for shared remote service
+  processes.
+- **Python in-process:** the application is the trust boundary. Pass
+  `ctx=CallContext(...)` to `BoundTools.call()` (and to Anthropic `execute()`), or provide
+  `vectorsmith_context` through supported framework context/config objects. Omitting it
+  remains backward compatible but cannot satisfy claim-based tenancy.
+
+Do not describe static stdio tenancy as authenticated identity, and do not assume an
+in-process caller is trusted unless the application constructs the context from an
+authenticated request.
 
 Policy packs (`pci`, `soc2`) ship in `vectorsmith_core/policy/` and run in-process. Custom `--policy path.rego` runs `opa eval` with `{"tds": ...}` on stdin; each Rego `deny` becomes **POL001**. **POL000** if the `opa` CLI is missing or eval fails.
 

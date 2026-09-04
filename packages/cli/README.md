@@ -16,7 +16,10 @@ pip install "vectorsmith[qdrant]"
   </a>
 </p>
 
-Store extras: `qdrant` · `pgvector` · `chroma` · `pinecone` · `weaviate` · `milvus` — [which stores ship](https://kjgpta.github.io/vectorsmith/vector-stores/).
+Store extras: `qdrant` · `pgvector` · `chroma` · `pinecone` · `weaviate` · `milvus`.
+All adapters currently have experimental support status; see the
+[capability matrix](https://kjgpta.github.io/vectorsmith/vector-stores/) and
+[live conformance evidence](https://kjgpta.github.io/vectorsmith/conformance/).
 
 ## Two doors, one YAML
 
@@ -37,6 +40,11 @@ vs = connect("tools.invoices.yaml", env_file=".env")
 rows = await vs.call("search_invoices", {"query": "Globex", "limit": 3})
 await vs.aclose()
 ```
+
+Authenticated applications can pass `ctx=CallContext(...)` to `vs.call`.
+LangChain/LangGraph, OpenAI Agents, and Anthropic wrappers propagate supported
+identity fields; the application remains responsible for authenticating
+caller-supplied context.
 
 ```json
 {
@@ -81,6 +89,14 @@ tools:
 
 `tenant: acme` is **not** in the model-facing schema. Full contract: [tools.yaml reference](https://kjgpta.github.io/vectorsmith/tools-yaml-reference/).
 
+Experimental local lifecycle commands are available behind an explicit flag:
+`vectorsmith discover`, `vectorsmith eval`, and `vectorsmith drift`. Approval
+supports semantic `--dry-run` previews, provenance, and catalog versioning.
+These commands never auto-promote a draft.
+
 **0.2.0** is the production HTTP server: JWT / API keys, request tenancy, RBAC, Vault / AWS SM / Kubernetes credentials, audit (file / HTTP / OTLP), OpenTelemetry traces, Prometheus `/metrics`, Redis rate limits, `profiles.enterprise` at `serve` time. Extras: `auth-jwt` · `auth-redis` · `otel` · `creds-aws` · `embed-openai` · `embed-cohere` · `rerank-local`.
+
+That designation applies to the HTTP runtime, not adapter stability. Check the
+experimental backend evidence before making a production support claim.
 
 Apache-2.0. *Forge the tools. Keep the store.*

@@ -6,7 +6,13 @@ Hub: [documentation home](index.md) · [Getting started](getting-started.md) · 
 
 ### Which vector stores are supported?
 
-Six: **Qdrant, pgvector, Chroma, Pinecone, Weaviate, Milvus**. Install `vectorsmith[<backend>]`. There is no extra for Elasticsearch, Redis, or OpenSearch. Details: [vector stores](vector-stores.md).
+Six: **Qdrant, pgvector, Chroma, Pinecone, Weaviate, Milvus**. All
+currently have **experimental** support status: their advertised read-only
+capabilities are tested, but the full fault and version matrix required for
+stable status is incomplete. Install `vectorsmith[<backend>]`. There is no
+extra for Elasticsearch, Redis, or OpenSearch. Details:
+[vector stores](vector-stores.md) and
+[backend conformance](conformance.md).
 
 ### `vectorsmith: command not found`
 
@@ -23,6 +29,11 @@ Host JSON `env: { "QDRANT_URL": "…" }` is **not** used for `${VAR}` in YAML. K
 ### Desktop shows **Server disconnected**
 
 The MCP process cannot start. Common cause: sandboxed `~/Downloads` venv (`PermissionError` on `pyvenv.cfg`). Install under `~/Claude` or `~/Documents`, or set `command` to that venv’s absolute `vectorsmith` binary.
+
+If a GitHub Copilot CLI client reports that the connection is serving the
+2026 protocol and rejects a `2025-11-25` initialize handshake, upgrade to a
+VectorSmith build containing the Phase 2 MCP fix. Stdio now remains in the
+handshake protocol when Copilot probes `server/discover` before `initialize`.
 
 ### Claude never sees a tool I just added to YAML
 
@@ -55,7 +66,13 @@ No. Vendor servers are cluster admin (often including writes). VectorSmith is **
 
 `static_filters` are applied on every call and are not advertised. Put org isolation there so the model cannot skip it. That is a payload field, not Pinecone namespace or Weaviate `connections.*.tenant` — [vector stores](vector-stores.md#tenancy-vs-payload-filters).
 
-For **request-scoped** isolation (each caller is a different tenant), set `security.tenancy.mode` to `claim` or `header`. The engine ANDs that filter from the JWT claim or `X-Tenant-Id` header. That path is never in the MCP schema. Stdio / `load_tools` have no caller identity — keep `mode: none` or `static` there.
+For **request-scoped** isolation (each caller is a different tenant), set
+`security.tenancy.mode` to `claim` or `header`. The engine ANDs that filter
+from the JWT claim or `X-Tenant-Id` header. That path is never in the MCP
+schema. Stdio has no authenticated caller identity, so use static tenancy and
+separate processes there. Python `connect` / `load_tools` can receive a
+caller-supplied `CallContext`; the embedding application must construct it from
+an authenticated request.
 
 ### Which embedding model actually runs?
 
@@ -71,7 +88,9 @@ Use the **REST API base**, not the `/dashboard` UI URL. Put it in `.env` as `QDR
 
 ### Hybrid search fails (`VB2012` / `VB2013`)
 
-Needs a backend with hybrid (Qdrant, Weaviate, Milvus, Pinecone) **and** sparse vectors on the collection. Confirm with `validate --live`. Chroma and pgvector do not support hybrid.
+Needs a backend that currently advertises hybrid (**Qdrant or Weaviate**) and
+sparse vectors on the collection. Confirm with `validate --live`. Chroma,
+pgvector, Pinecone, and Milvus do not currently advertise hybrid.
 
 ### Name collision `VB2010` / `search_invoices`
 
@@ -109,6 +128,10 @@ The process **cwd**. Set `cwd` in Desktop/Codex. Cap 10 pending; 30-day expiry.
 
 `approve` interpolates with an empty env map. Use `${VAR:-default}` in the YAML you approve into.
 
+Use `approve NAME --dry-run` to inspect the semantic summary, catalog-version
+increment, and provenance without changing either file. Successful approval
+preserves existing YAML comments and formatting.
+
 ---
 
 ### Which pip extras exist?
@@ -117,7 +140,13 @@ Stores, agent SDKs, `embed-openai` / `embed-cohere`, `auth-jwt` / `auth-redis`, 
 
 ### Is HTTP `serve` production-ready?
 
-Yes as of **0.2.0**. Use `--auth jwt` or `api_key` on a public bind, `GET /readyz` as the readiness probe, `--log-format json`, and `validate --enterprise --strict` in CI. Chart: [Kubernetes](deploy/kubernetes.md). `--auth none` remains loopback-only.
+The HTTP transport, authentication, probes, observability, and hardening
+surface shipped in **0.2.0**. That is separate from backend stability: all six
+adapters currently remain experimental and emit `VB2024`. Use `--auth jwt` or
+`api_key` on a public bind, `GET /readyz` as the readiness probe, and
+`--log-format json`. Keep `validate --enterprise --strict` in CI as an honest
+gate; it remains non-zero until the selected backend earns stable status.
+Chart: [Kubernetes](deploy/kubernetes.md). `--auth none` remains loopback-only.
 
 ## Still stuck
 

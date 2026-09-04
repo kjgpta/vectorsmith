@@ -15,6 +15,7 @@ from vectorsmith_cli.http.auth.api_key import APIKeyProvider
 from vectorsmith_cli.http.auth.jwt import JWTProvider
 from vectorsmith_cli.http.auth.store.redis import RedisAuthStore
 from vectorsmith_cli.http.builtin_oauth.store import AuthStore
+from vectorsmith_cli.mcp_compat import LATEST_HANDSHAKE_VERSION
 from vectorsmith_cli.serve_http import localhost_bind
 from vectorsmith_core.api import EnvCredentialResolver, load_project
 from vectorsmith_core.execute.engine import Engine
@@ -137,7 +138,12 @@ def test_jwt_rs256_ok(tmp_path: Path) -> None:
     res = client.post(
         "/mcp",
         headers={"Authorization": f"Bearer {token}"},
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": LATEST_HANDSHAKE_VERSION},
+        },
     )
     assert res.status_code == 200
     assert res.json()["result"]["serverInfo"]["name"] == "VectorSmith"

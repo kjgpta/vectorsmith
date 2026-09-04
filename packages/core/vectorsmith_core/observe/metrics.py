@@ -3,14 +3,36 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Any
 
 _enabled = False
 _calls: dict[tuple[str, str], int] = defaultdict(int)
-_latency: dict[str, list[float]] = defaultdict(list)
 _embed: dict[str, int] = defaultdict(int)
 _adapter_err: dict[tuple[str, str], int] = defaultdict(int)
 _rl: dict[str, int] = defaultdict(int)
+_LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+
+@dataclass
+class _Histogram:
+    count: int = 0
+    total: float = 0.0
+    buckets: list[int] = field(
+        default_factory=lambda: [0] * (len(_LATENCY_BUCKETS) + 1)
+    )
+
+    def observe(self, value: float) -> None:
+        seconds = max(0.0, float(value))
+        self.count += 1
+        self.total += seconds
+        for index, upper in enumerate(_LATENCY_BUCKETS):
+            if seconds <= upper:
+                self.buckets[index] += 1
+        self.buckets[-1] += 1
+
+
+_latency: dict[str, _Histogram] = defaultdict(_Histogram)
 
 
 def configure_metrics(enabled: bool = False) -> None:
@@ -31,7 +53,7 @@ def inc_tool_call(tool: str, status: str) -> None:
 
 def observe_latency(tool: str, seconds: float) -> None:
     if _enabled:
-        _latency[tool].append(seconds)
+        _latency[tool].observe(seconds)
 
 
 def inc_embed(provider: str) -> None:
@@ -63,12 +85,25 @@ def render() -> str:
     ]
     for (tool, status), n in sorted(_calls.items()):
         lines.append(f'vectorsmith_tool_calls_total{{tool="{tool}",status="{status}"}} {n}')
-    lines.append("# TYPE vectorsmith_tool_latency_seconds summary")
-    for tool, samples in sorted(_latency.items()):
-        if not samples:
+    lines.append("# TYPE vectorsmith_tool_latency_seconds histogram")
+    for tool, histogram in sorted(_latency.items()):
+        if not histogram.count:
             continue
+        for upper, count in zip(
+            (*_LATENCY_BUCKETS, float("inf")),
+            histogram.buckets,
+            strict=True,
+        ):
+            label = "+Inf" if upper == float("inf") else str(upper)
+            lines.append(
+                "vectorsmith_tool_latency_seconds_bucket"
+                f'{{tool="{tool}",le="{label}"}} {count}'
+            )
         lines.append(
-            f'vectorsmith_tool_latency_seconds{{tool="{tool}"}} {sum(samples) / len(samples)}'
+            f'vectorsmith_tool_latency_seconds_sum{{tool="{tool}"}} {histogram.total}'
+        )
+        lines.append(
+            f'vectorsmith_tool_latency_seconds_count{{tool="{tool}"}} {histogram.count}'
         )
     lines.append("# TYPE vectorsmith_embed_requests_total counter")
     for provider, n in sorted(_embed.items()):
@@ -85,6 +120,14 @@ def render() -> str:
 def snapshot() -> dict[str, Any]:
     return {
         "calls": dict(_calls),
+        "latency": {
+            tool: {
+                "count": value.count,
+                "sum": value.total,
+                "buckets": tuple(value.buckets),
+            }
+            for tool, value in _latency.items()
+        },
         "embed": dict(_embed),
         "rate_limit": dict(_rl),
     }

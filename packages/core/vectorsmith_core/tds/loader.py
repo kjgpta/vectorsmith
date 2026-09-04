@@ -181,15 +181,16 @@ def looks_like_secret(value: str) -> bool:
 
 def lint_secrets(connections: Mapping[str, Any]) -> list[str]:
     hits: list[str] = []
+    sensitive = {"api_key", "auth_token", "token", "password", "dsn"}
 
-    def walk(obj: Any, path: str) -> None:
+    def walk(obj: Any, path: str, *, inspect_value: bool = False) -> None:
         if isinstance(obj, dict):
             for k, v in obj.items():
-                walk(v, f"{path}.{k}")
+                walk(v, f"{path}.{k}", inspect_value=inspect_value or k in sensitive)
         elif isinstance(obj, list):
             for i, v in enumerate(obj):
-                walk(v, f"{path}[{i}]")
-        elif isinstance(obj, str) and looks_like_secret(obj):
+                walk(v, f"{path}[{i}]", inspect_value=inspect_value)
+        elif inspect_value and isinstance(obj, str) and looks_like_secret(obj):
             hits.append(path)
 
     walk(connections, "connections")

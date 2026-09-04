@@ -1,0 +1,1 @@
+"""Live adapter conformance suite."""

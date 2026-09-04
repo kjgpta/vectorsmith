@@ -8,6 +8,7 @@ from starlette.testclient import TestClient
 
 from vectorsmith_cli.http.app import build_app, challenge_header
 from vectorsmith_cli.http.builtin_oauth.store import AuthStore
+from vectorsmith_cli.mcp_compat import LATEST_HANDSHAKE_VERSION
 from vectorsmith_core.api import EnvCredentialResolver, load_project
 from vectorsmith_core.execute.engine import Engine
 
@@ -56,7 +57,15 @@ def test_401_exact_header(tmp_path: Path) -> None:
 
 def test_initialize_server_info_default(tmp_path: Path) -> None:
     client = _app(tmp_path, auth="none")
-    res = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    res = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": LATEST_HANDSHAKE_VERSION},
+        },
+    )
     assert res.status_code == 200
     info = res.json()["result"]["serverInfo"]
     assert info["name"] == "VectorSmith"
@@ -65,7 +74,15 @@ def test_initialize_server_info_default(tmp_path: Path) -> None:
 
 def test_initialize_server_info_user_name(tmp_path: Path) -> None:
     client = _app(tmp_path, auth="none", name="invoices")
-    res = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    res = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": LATEST_HANDSHAKE_VERSION},
+        },
+    )
     info = res.json()["result"]["serverInfo"]
     assert info["name"] == "invoices"
     assert info["title"] == "VectorSmith"
@@ -74,7 +91,15 @@ def test_initialize_server_info_user_name(tmp_path: Path) -> None:
 def test_drain_rejects_new_mcp(tmp_path: Path) -> None:
     client = _app(tmp_path, auth="none")
     client.app.state.draining = True
-    res = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    res = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": LATEST_HANDSHAKE_VERSION},
+        },
+    )
     assert res.status_code == 503
     assert res.json()["error"] == "shutting_down"
     assert client.get("/healthz").status_code == 200

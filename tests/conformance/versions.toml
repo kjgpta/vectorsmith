@@ -1,0 +1,81 @@
+# Version boundaries exercised by the experimental conformance CI matrix.
+#
+# `minimum` mirrors the lower bound declared by vectorsmith-core's backend extra.
+# `minimum_tested` is the lowest stable published version at that boundary.
+# `pinned` and `newest_tested` are exact, reproducible versions present in uv.lock.
+# The published dependency ranges remain open-ended: the repository contains no
+# evidence of an incompatible upper release, so this manifest records tested
+# boundaries without claiming unsupported incompatibilities.
+schema_version = 1
+
+[defaults]
+# The workspace and every backend extra require Python >=3.11. Boundary CI uses
+# one shared interpreter so that only the client version changes between runs.
+python = "3.12"
+
+[backends.qdrant]
+service = "qdrant"
+server = "1.13.2"
+client = "qdrant-client"
+minimum = "1.10.1"
+minimum_tested = "1.10.1"
+pinned = "1.19.0"
+newest_tested = "1.19.0"
+python = ">=3.11"
+# Hybrid Prefetch/FusionQuery is absent from qdrant-client 1.9.
+
+[backends.pgvector]
+service = "postgres"
+server = "pgvector/pg16"
+client = "psycopg[binary,pool]"
+minimum = "3.2.1"
+minimum_tested = "3.2.1"
+pinned = "3.3.4"
+newest_tested = "3.3.4"
+python = ">=3.11"
+# psycopg[binary] 3.2.0 references an unpublished 3.2.0.dev1 binary wheel.
+
+[backends.chroma]
+service = "chroma"
+server = "1.5.0"
+client = "chromadb"
+minimum = "1.5"
+minimum_tested = "1.5.0"
+pinned = "1.5.9"
+newest_tested = "1.5.9"
+python = ">=3.11"
+# Chroma 0.5 clients are schema-incompatible with the supported 1.5 server.
+# The chroma extra also constrains numpy<2.
+
+[backends.pinecone]
+service = "pinecone-local"
+server = "API 2025-01 (digest-pinned local image)"
+client = "pinecone"
+minimum = "5.0"
+minimum_tested = "5.0.0"
+pinned = "9.1.0"
+newest_tested = "9.1.0"
+python = ">=3.11"
+
+[backends.weaviate]
+service = "weaviate"
+server = "1.28.5"
+client = "weaviate-client"
+minimum = "4.4"
+minimum_tested = "4.4.0"
+pinned = "4.23.0"
+newest_tested = "4.23.0"
+python = ">=3.11"
+# 4.4.0 is the first stable boundary covered by this contract.
+
+[backends.milvus]
+service = "milvus"
+server = "2.5.4"
+client = "pymilvus"
+minimum = "2.6"
+minimum_tested = "2.6.0"
+pinned = "3.0.1"
+newest_tested = "3.0.1"
+python = ">=3.11"
+# 2.4/2.5 require removed pkg_resources APIs and an incompatible marshmallow
+# transitive dependency under the supported Python toolchain.

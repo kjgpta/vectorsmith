@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from vectorsmith_cli.authoring_cmd import run_discover, run_drift, run_eval
 from vectorsmith_cli.drafts_cmd import run_approve, run_drafts
 from vectorsmith_cli.identity import DEFAULT_SERVER_NAME
 from vectorsmith_cli.init_cmd import run_init
@@ -189,6 +190,70 @@ def introspect(
 
 
 @app.command()
+def discover(
+    tools: Path = typer.Argument(...),
+    connection: str = typer.Option(..., "--connection"),
+    collections: str | None = typer.Option(None, "--collections"),
+    out: Path = typer.Option(Path("tools.discovered.drafts.yaml"), "--out"),
+    env_file: Path | None = typer.Option(None, "--env-file"),
+    experimental: bool = typer.Option(False, "--experimental"),
+) -> None:
+    """Generate pending schema-backed drafts without changing tools.yaml."""
+    raise SystemExit(
+        run_discover(
+            tools,
+            connection=connection,
+            collections=collections,
+            out=out,
+            env_file=env_file,
+            experimental=experimental,
+        )
+    )
+
+
+@app.command("eval")
+def eval_cmd(
+    tools: Path = typer.Argument(...),
+    scenarios: Path = typer.Argument(...),
+    out: Path = typer.Option(Path("vectorsmith-eval.json"), "--out"),
+    env_file: Path | None = typer.Option(None, "--env-file"),
+    experimental: bool = typer.Option(False, "--experimental"),
+) -> None:
+    """Run checked-in contract scenarios against the normal execution engine."""
+    raise SystemExit(
+        run_eval(
+            tools,
+            scenarios,
+            out=out,
+            env_file=env_file,
+            experimental=experimental,
+        )
+    )
+
+
+@app.command()
+def drift(
+    tools: Path = typer.Argument(...),
+    schema: Path = typer.Argument(...),
+    connection: str = typer.Option(..., "--connection"),
+    out: Path = typer.Option(Path("vectorsmith-drift.json"), "--out"),
+    env_file: Path | None = typer.Option(None, "--env-file"),
+    experimental: bool = typer.Option(False, "--experimental"),
+) -> None:
+    """Compare a metadata-only schema export with live introspection."""
+    raise SystemExit(
+        run_drift(
+            tools,
+            schema,
+            connection=connection,
+            out=out,
+            env_file=env_file,
+            experimental=experimental,
+        )
+    )
+
+
+@app.command()
 def drafts(
     action: str = typer.Argument(..., help="list | reject"),
     name: str | None = typer.Argument(None),
@@ -201,9 +266,11 @@ def drafts(
 def approve(
     name: str = typer.Argument(...),
     file: Path = typer.Option(Path("tools.yaml"), "--file"),
+    approver: str | None = typer.Option(None, "--approver"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     """Promote a draft into tools.yaml."""
-    run_approve(name, file)
+    run_approve(name, file, approver=approver, dry_run=dry_run)
 
 
 @app.command()

@@ -140,11 +140,9 @@ def test_must_not_compiles_on_adapters() -> None:
         "archived": {"$ne": True}
     }
     assert PineconeAdapter(creds={}).compile_filter(inverted) == {"archived": {"$ne": True}}
-    assert WeaviateAdapter(creds={}).compile_filter(inverted) == {
-        "path": ["archived"],
-        "operator": "ne",
-        "value": True,
-    }
+    weaviate = WeaviateAdapter(creds={}).compile_filter(inverted)
+    assert "target='archived'" in repr(weaviate)
+    assert "NOT_EQUAL" in repr(weaviate)
     assert MilvusAdapter(creds={}).compile_filter(inverted) == "archived != True"
     pytest.importorskip("psycopg")
     from vectorsmith_core.adapters.pgvector import PgvectorAdapter
@@ -153,4 +151,4 @@ def test_must_not_compiles_on_adapters() -> None:
     spec = PgvectorConn(backend="pgvector", dsn="postgresql://x", table="invoices")
     compiled = PgvectorAdapter(spec, {}).compile_filter(inverted)
     assert isinstance(compiled, dict)
-    assert compiled["params"] == [True]
+    assert compiled["params"] == [["archived"], True]

@@ -34,3 +34,56 @@ jobs:
         run: uv run lint-imports
       - name: Unit tests
         run: uv run pytest -m "not conformance" --tb=short
+
+  experimental-conformance:
+    name: experimental / ${{ matrix.backend }} / ${{ matrix.boundary }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [qdrant, pgvector, chroma, pinecone, weaviate, milvus]
+        boundary: [min, pinned, max]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # Kept in sync with defaults.python in versions.toml.
+          python-version: "3.12"
+      - name: Resolve version boundary
+        id: versions
+        run: >-
+          python tests/conformance/version_manifest.py
+          --backend "${{ matrix.backend }}"
+          --boundary "${{ matrix.boundary }}"
+          --github-output "$GITHUB_OUTPUT"
+          --json-output
+          ".internal/phase2/${{ matrix.backend }}-${{ matrix.boundary }}-boundary.json"
+      - name: Sync conformance SDKs
+        run: uv sync --group dev --group conformance --frozen
+      - name: Install exact boundary client
+        run: |
+          uv pip install \
+            --python .venv/bin/python \
+            "${{ steps.versions.outputs.client }}==${{ steps.versions.outputs.client_version }}"
+          uv pip check --python .venv/bin/python
+      - name: Start backend
+        run: docker compose up -d "${{ steps.versions.outputs.service }}"
+      - name: Run advertised contract
+        env:
+          PYTHONPATH: packages/core:packages/cli:.
+          VECTORSMITH_CLIENT_GENERATION: ${{ matrix.boundary }}
+        run: >-
+          uv run --no-sync pytest tests/conformance
+          --backend "${{ matrix.backend }}"
+          --tb=short
+      - name: Upload conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-${{ matrix.backend }}-${{ matrix.boundary }}
+          path: .internal/phase2/*.json
+          if-no-files-found: warn
+      - name: Stop backend
+        if: always()
+        run: docker compose down --volumes

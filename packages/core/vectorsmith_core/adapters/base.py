@@ -57,6 +57,11 @@ class VectorBackendAdapter(ABC):
     async def introspect_native(self, collection: str | None = None) -> dict[str, Any] | None:
         return None
 
+    async def uses_server_side_embedding(self, collection: str) -> bool:
+        """Return whether text queries should omit a client-generated vector."""
+        _ = collection
+        return False
+
     async def create_field_index(self, collection: str, path: str, dtype: str) -> None:
         return None
 

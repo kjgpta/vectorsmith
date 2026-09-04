@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from vectorsmith.context import fresh_call_context
 from vectorsmith_core.api import CallContext, load_project
 from vectorsmith_core.execute.engine import Engine
 from vectorsmith_core.security.credentials import build_credential_resolver
@@ -125,15 +125,19 @@ class BoundTools:
 
         return toolset_from_bound(self)
 
-    async def call(self, name: str, args: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    async def call(
+        self,
+        name: str,
+        args: Mapping[str, Any] | None = None,
+        *,
+        ctx: CallContext | None = None,
+    ) -> dict[str, Any]:
         engine = self._by_name.get(name)
         if engine is None:
             known = ", ".join(self.names) or "(none)"
             raise KeyError(f"unknown tool {name!r}; loaded: {known}")
         clean = {k: v for k, v in dict(args or {}).items() if v is not None}
-        result = await engine.call(
-            name, clean, ctx=CallContext(request_id=str(uuid.uuid4()))
-        )
+        result = await engine.call(name, clean, ctx=ctx or fresh_call_context())
         return result.model_dump()
 
     async def aclose(self) -> None:

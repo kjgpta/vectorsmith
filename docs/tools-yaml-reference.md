@@ -29,7 +29,10 @@ On `validate`, `serve`, `test`, `load_tools`, or `connect`:
 
 1. **Read** — Safe YAML only. Max 1 MB, depth 20, 100 anchors. Root must be a mapping.
 2. **Interpolate** — `${VAR}` and `${VAR:-default}` only on the [allowed paths](#interpolation-paths). Anywhere else, a `${…}` string is an error (`VB1003`). The env map is: CLI `--env-file` only; Python `os.environ` + `env=` + `env_file=`.
-3. **Lint secrets** — Literal API keys, DSNs with passwords, high-entropy strings under `connections` fail load. Put secrets in the environment or `--env-file`.
+3. **Lint secrets** — Literal values beneath credential-bearing connection keys
+   (`api_key`, `auth_token`, `token`, `password`, `dsn`) are checked for API
+   keys, DSNs with passwords, and high-entropy secrets. Put them in the
+   environment or `--env-file`.
 4. **Parse** — Pydantic models (`tds_version: "1"` or `"2"`). v1 still loads with **VB0002**. Unknown keys are **warnings** (`VB0001`), not hard errors.
 5. **Synthesize built-ins** — Opt-in `builtin_tools` become extra tools (`search_<connection>`, …). They never appear as entries you typed under `tools:`.
 6. **Validate** — Names, kinds, dtype×op, backend capabilities, hybrid, pipelines. All issues are collected (`VBxxxx`).
@@ -130,7 +133,12 @@ Allowed **only** under `connections` (and embedding / expand / rerank `config` a
 | `${QDRANT_URL}` | Required. Missing → load fails (`MissingEnvError`). |
 | `${QDRANT_API_KEY:-}` | Optional; empty string if unset. |
 | `${QDRANT_URL:-http://localhost:6333}` | Default if unset. |
-| `https://…?key=sk-live-…` | Rejected (looks like an inline secret). |
+| `api_key: sk-live-…` | Rejected (looks like an inline secret). |
+
+Secret linting is intentionally scoped to credential-bearing keys, including
+those nested below them. Ordinary descriptive and URL fields are not scanned
+as generic high-entropy text; do not embed credentials in a URL merely because
+the loader does not classify that field as a credential.
 
 CLI: `--env-file .env` (only keys in that file — the process environment is **not** merged). Python: `load_tools(..., env_file=".env")` or `env={"QDRANT_URL": "…"}` **does** merge `os.environ`, then `env`, then the file.
 
@@ -144,10 +152,15 @@ CLI: `--env-file .env` (only keys in that file — the process environment is **
 | `pgvector` | `dsn` | `table`, `vector_column` (default `embedding`), `mode` (`vector` \| `table`), `id_column` (default `id`) |
 | `chroma` | `url` | `auth_token` |
 | `pinecone` | `api_key`, `host` | `namespace` |
-| `weaviate` | `url` | `api_key`, `tenant` |
+| `weaviate` | `url` | `api_key`, `tenant`, `embedding_mode` (`auto` \| `client` \| `server`) |
 | `milvus` | `uri` | `token`, `user`, `password`, `database` |
 
 **pgvector table mode** — `mode: table` or `vector_column: null`. No vector column, so `kind: search` and `query:` are rejected (`VB2016`). Use `lookup` / `count` / `scroll` / `pipeline`.
+
+**Weaviate embedding mode** — `auto` uses the collection vectorizer when native
+introspection proves one is configured and otherwise embeds locally. `server`
+requires a collection vectorizer and fails closed for self-provided vectors;
+`client` always uses the configured VectorSmith embedder.
 
 Every connection also accepts `builtin_tools`, `builtin_defaults`, and `credentials` (below).
 
@@ -278,6 +291,27 @@ Enables `describe_collection` and `define_tool` on `serve`. Equivalent: `vectors
 
 Claude can propose a tool; the server writes **`tools.drafts.yaml` in the process working directory** (set `cwd` in Desktop/Codex). Cap **10** pending drafts; pending drafts older than **30 days** expire. Promote with `vectorsmith approve NAME [--file tools.yaml]` (that is the only path that edits `tools.yaml`). `approve` interpolates connections with an empty env map — use `${VAR:-default}` in that file or interpolation fails.
 
+`approve --dry-run` prints a JSON semantic summary without changing either file. Approval preserves
+YAML comments/formatting, increments `meta.tool_catalog_version`, retains deprecation
+metadata, and records approver/time/hash provenance in the draft record.
+
+Phase 2 local prototypes require an explicit flag and never auto-promote:
+
+```bash
+vectorsmith discover tools.yaml --connection main --experimental
+vectorsmith eval tools.yaml scenarios.yaml --experimental
+vectorsmith drift tools.yaml schema.json --connection main --experimental
+```
+
+`discover` writes pending schema-backed proposals, supported operators, and
+likely tenant fields to `tools.discovered.drafts.yaml` by default (or `--out`);
+this is separate from the `./tools.drafts.yaml` used by MCP `define_tool` and
+`approve`. Review and deliberately move an accepted proposal into the approval
+workflow. `eval` executes checked-in calls through the normal engine and checks
+tool/argument, row, isolation-value, and score invariants. It does not currently
+inject a request `CallContext`. `drift` compares a metadata-only export with
+live introspection and writes suggestions; it does not edit the catalog.
+
 `kind: meta` is never user-authorable.
 
 ---
@@ -352,7 +386,10 @@ Present = this tool can take a text string and embed it.
 | `ef` | | HNSW `ef` where supported (Qdrant). **VB2023** warning on other backends |
 | `expand` | off | Optional LLM rewrite. See below. |
 
-`mode: hybrid` needs a backend with hybrid (Qdrant, Weaviate, Milvus, Pinecone) **and** sparse vectors on the collection. Confirm with `vectorsmith validate --live` (`VB2012` / `VB2013`). Chroma and pgvector do not support hybrid.
+`mode: hybrid` needs a backend that currently advertises hybrid (Qdrant or
+Weaviate) **and** sparse vectors on the collection. Confirm with
+`vectorsmith validate --live` (`VB2012` / `VB2013`). Chroma, pgvector,
+Pinecone, and Milvus do not currently advertise hybrid.
 
 #### `query.expand`
 
@@ -430,7 +467,11 @@ parameters:
 | `boolean` | `eq` `ne` |
 | `keyword[]` | `in` `nin` `contains_any` `contains_all` |
 
-Qdrant also allows `exists` / `is_null` / `text_match`. pgvector adds `like`. See `vectorsmith_core.adapters.capabilities` for the full matrix.
+Qdrant also allows `exists` / `is_null` / `text_match`. pgvector adds `like`.
+Qdrant, pgvector, Pinecone, Weaviate, and Milvus support
+`contains_any` / `contains_all`; Chroma rejects `keyword[]` filters. See the
+[generated backend matrix](vector-stores.md#what-each-backend-can-do) for the
+full contract.
 
 `filter_logic` is always `and` (the only legal value). Optional params that are absent are not part of the AND.
 
@@ -602,6 +643,10 @@ Used by `vectorsmith validate --profile enterprise` (same rules as `--enterprise
 | `max_field_length` | | Truncate string fields; `truncate_suffix` default `…` |
 | `redact` | | Per-path `omit` / `hash` / `mask` / `pattern` after fetch |
 
+For Chroma, the stored document body is exposed as the reserved `_document` field.
+Add `_document` to `fields` when using an explicit projection. A metadata field named
+`content` remains metadata and is not overwritten.
+
 ```yaml
 output:
   fields: [invoice_id, client_name, notes]
@@ -760,7 +805,15 @@ vectorsmith test tools.yaml search_invoices \
   --args '{"query":"Globex invoice","limit":3}' --env-file .env
 ```
 
-Exit codes: `0` ok · `1` warnings with `--strict` (`validate` only) · `2` errors · `3` runtime (`test` / `introspect` on a live failure; `serve --http --auth none` off localhost).
+Exit codes: `0` ok · `1` strict validation warnings, failed `eval` scenarios, or
+detected `drift` · `2` validation/usage errors · `3` runtime (`test`,
+`introspect`, or `discover` live failure; `serve --http --auth none` off
+localhost).
+
+All current backends have experimental support status, so `VB2024` makes
+strict validation non-zero until the selected adapter completes its stability
+matrix. This is an intentional support gate; see
+[backend conformance](conformance.md).
 
 ### Codes you will actually hit
 
@@ -787,6 +840,9 @@ Exit codes: `0` ok · `1` warnings with `--strict` (`validate` only) · `2` erro
 | `VB2021` | error | Bare-list `static_filters` mixed with `must`/`must_not` keys |
 | `VB2022` | error | `query.min_score` is not in `[0, 1]` |
 | `VB2023` | warning | `query.ef` set on a backend that cannot use it |
+| `VB2024` | warning | Target backend is experimental and requires version-specific verification |
+| `VB2025` | error | Enabled built-in cannot preserve the backend's advertised isolation contract |
+| `VB2026` | error | Live introspection found a filter path without a required explicit backend index |
 | `VB4010` | error | Model argument conflicts with request tenancy (`enforce: strict`) |
 | `VB4011` | error | `security.tenancy.mode: claim` without `claim` |
 | `VB4012` | warning | Tool parameter path collides with `security.tenancy.path` |

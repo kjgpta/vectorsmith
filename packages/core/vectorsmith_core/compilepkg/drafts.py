@@ -41,9 +41,13 @@ def draft_tool(project: Project, provenance: dict[str, Any], proposed: dict[str,
     try:
         spec = ToolSpec.model_validate(proposed)
     except ValidationError as exc:
-        dummy = ToolSpec.model_construct(
-            name=str(proposed.get("name") or "draft_invalid_tool"),
-            description=str(proposed.get("description") or "x" * 20),
+        dummy = ToolSpec.model_validate(
+            {
+                "name": "draft_invalid_tool",
+                "description": "Invalid pending draft retained for issue reporting.",
+                "kind": "search",
+                "target": {"connection": "invalid", "collection": "invalid"},
+            }
         )
         return ToolDraft(
             spec=dummy,

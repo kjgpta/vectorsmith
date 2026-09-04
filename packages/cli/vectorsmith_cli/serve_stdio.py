@@ -13,6 +13,8 @@ from typing import Any
 
 from mcp import types
 from mcp.server import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
+from mcp.server.runner import serve_loop
 from mcp.server.stdio import stdio_server
 
 from vectorsmith_cli.identity import DEFAULT_SERVER_NAME, PRODUCT_NAME
@@ -56,6 +58,23 @@ def _quiet_native_progress() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TQDM_DISABLE", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+
+async def _serve_stdio_loop(
+    server: Server[Any],
+    read: Any,
+    write: Any,
+    initialization_options: InitializationOptions,
+) -> None:
+    """Keep stdio on the handshake protocol even after a modern client probe."""
+    async with server.lifespan(server) as lifespan_context:
+        await serve_loop(
+            server,
+            read,
+            write,
+            lifespan_state=lifespan_context,
+            init_options=initialization_options,
+        )
 
 
 def serve_stdio(
@@ -234,7 +253,8 @@ def serve_stdio(
                 # After the transport claims fd 1, wrap Python stdout so FastEmbed
                 # / tqdm / stray prints cannot corrupt JSON-RPC.
                 install_stdio_guard()
-                await server.run(
+                await _serve_stdio_loop(
+                    server,
                     read,
                     write,
                     server.create_initialization_options(

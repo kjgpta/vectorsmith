@@ -5,6 +5,140 @@ Versioning: [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-09-04
+
+### Added
+
+- Experimental local contract-lifecycle commands, all gated by `--experimental`:
+  - `vectorsmith discover` introspects selected collections, recommends only operators
+    supported by the target backend, identifies likely tenant fields, and writes pending
+    schema-backed drafts without modifying the active catalog;
+  - `vectorsmith eval` runs checked-in tool-call scenarios through the normal execution
+    engine and records tool/argument mismatches, row-count invariants, required and forbidden
+    field values, score thresholds, and execution failures in a JSON report;
+  - `vectorsmith drift` compares a checked-in metadata-only schema report with live
+    introspection and reports added, removed, and type-changed fields without promoting
+    changes.
+- Approval previews and provenance: `vectorsmith approve --dry-run` prints the proposed
+  read-only tool, target, parameters, guardrails, catalog-version change, and provenance
+  without mutating either file. Successful approval records the approver, timestamp, draft
+  hash, and catalog version, increments `meta.tool_catalog_version`, and uses round-trip YAML
+  editing to preserve existing comments and formatting.
+- Optional Python `CallContext` propagation through `BoundTools.call()`, including principal,
+  claims, roles, tenant identity, deadline, and request ID where supported by LangChain /
+  LangGraph, OpenAI Agents, and Anthropic wrappers. Existing calls without a context remain
+  backward compatible.
+- Explicit backend `support_level` and guardrail-preserving `id_lookup` capability metadata.
+  All current backend integrations remain `experimental` pending their complete fault and
+  supported-version matrices.
+- Compiler warning `VB2024` for experimental backend connections and error `VB2025` when a
+  synthesized exact-ID or filtered-count builtin cannot preserve the backend's advertised
+  isolation contract.
+- A deterministic six-backend conformance suite over 1,000 generated records, covering
+  universal and capability-gated adapter behavior, synthesized builtins, draft safety,
+  hidden-tenant isolation, Filter IR parity, exact IDs, counts, pagination, projection,
+  score direction, Unicode, null/missing values, large documents, reserved metadata,
+  cleanup, and foreign-exception translation.
+- A backend-independent oracle for filter evaluation, deterministic vector ranking,
+  pagination, and projection, plus a local evidence artifact containing client/server
+  versions, capability snapshots, per-backend pass/skip/failure counts, and timing.
+- Visible, non-blocking CI conformance jobs for Qdrant, pgvector, Chroma, Pinecone Local,
+  Weaviate, and Milvus. Experimental backend failures remain diagnostic and do not publish
+  or trigger releases.
+- Direct live capability proofs for nested paths, array containment, typed introspection,
+  Qdrant dense/BM25 sparse fusion, Weaviate server-side embedding, Pinecone comparison
+  filters, and pgvector table mode, with per-capability evidence in the local artifact.
+- Reproducible minimum, pinned, and newest-tested backend client boundaries plus CI jobs
+  that exercise each boundary against the pinned server generation.
+- Live index validation error `VB2026` for filter paths missing an explicit native index on
+  backends that require one.
+
+### Changed
+
+- MCP is constrained to `mcp>=2,<3`. HTTP initialization now negotiates the requested
+  handshake version across `2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`;
+  unsupported or missing versions return JSON-RPC error `-32022` with the requested and
+  supported versions.
+- Stdio MCP serving uses the handshake-only loop so a modern `server/discover` probe cannot
+  lock the connection into the 2026 protocol era and reject a subsequent legacy
+  `initialize` request. This covers the GitHub Copilot CLI discover-before-initialize
+  sequence while preserving normal Claude, Cursor, Codex, and older-client handshakes.
+- Latency metrics use fixed Prometheus histogram buckets with `_bucket`, `_count`, and `_sum`
+  output instead of retaining every observed latency sample indefinitely.
+- Synchronous Pinecone, Weaviate, and Milvus SDK operations run through `asyncio.to_thread`
+  so adapter calls do not block the async runtime; close operations now release SDK clients
+  and local controller/index resources deterministically.
+- Every documented vector-store matrix row is generated and checked against runtime
+  capabilities. Pinecone no
+  longer advertises hybrid search, filtered count, scrolling, or guardrail-preserving
+  exact-ID lookup; Milvus no longer advertises hybrid or null/existence filters; Weaviate no
+  longer advertises null/existence filters unless that collection-level indexing contract
+  can be guaranteed.
+- Local backend infrastructure pins compatible server versions, uses Chroma 1.5.0, exposes
+  Weaviate gRPC, and pins Pinecone Local by image digest for reproducible conformance runs.
+- The Chroma optional dependency constrains NumPy to `<2` for compatibility with supported
+  Chroma client generations and now requires a schema-compatible Chroma 1.5 client.
+- Weaviate connections accept `embedding_mode: auto | client | server`; `auto` selects a
+  collection vectorizer only when native introspection proves it is available.
+
+### Fixed
+
+- Chroma results now include document bodies in the reserved `_document` field without
+  overwriting metadata, normalize distances to higher-is-better `_score` values, and honor
+  exact record IDs, filter-only offsets, projections, paginated filtered counts, HTTPS,
+  bearer authentication, and client cleanup.
+- Chroma no longer advertises unsupported SQL-style `like` filters; validation reports
+  `VB2004` instead of silently compiling wildcard patterns as equality.
+- Qdrant exact-ID extraction preserves residual tenant filters, treats conflicting IDs as
+  impossible, prevents payload `_id` values from replacing native IDs, implements native
+  existence and text-match filters, rejects unsupported vector offsets before SDK access,
+  paginates filter-only reads, and translates unexpected SDK failures consistently.
+- Qdrant hybrid search now generates BM25 sparse vectors locally, queries a named sparse
+  vector, honors HNSW `ef`, and is covered by a seeded live ranking contract.
+- pgvector now composes nested JSON paths and configured ID columns safely, implements
+  `exists`, `is_null`, and `like` explicitly instead of silently broadening unsupported
+  predicates to `TRUE`, applies filter parameters in the correct order, honors offsets and
+  projections, strips embedding internals, and converts lower-is-better distance into a
+  higher-is-better `_score`.
+- Pinecone now rejects unsupported filter-only lookup/scroll, filtered count, deterministic
+  sample, and nested-filter semantics instead of returning partial or misleading results.
+  Dense results honor projection and score flags.
+- Weaviate applies compiled filters to fetch, near-vector, hybrid, and aggregate operations;
+  filter-only reads honor limit, offset, and projection, and vector/hybrid results expose
+  available score metadata. Server-vectorized collections use `near_text` without invoking
+  a client embedder. Nested object filters are rejected because the supported server rejects
+  dotted object-property paths.
+- Milvus correctly parses filtered `count(*)` responses, supports filter-only reads, removes
+  native ID aliases from projected rows, normalizes score direction according to the
+  collection metric, rejects vector offsets, and fails explicitly for unsupported filter
+  operators.
+- Qdrant, pgvector, Pinecone, Weaviate, and Milvus implement exact `contains_any` and
+  `contains_all` array-filter contracts; nested paths are proved for Qdrant, pgvector, and
+  Milvus. Static-filter capability checks now match user parameter checks.
+- Adapter health, collection listing, search, count, and sample paths translate unexpected
+  third-party SDK exceptions to VectorSmith backend errors instead of leaking foreign
+  exception types.
+- Disabling OpenTelemetry tracing now shuts down its batch provider, preventing exporter
+  threads from surviving process teardown.
+- Reranking recognizes Chroma's reserved `_document` field as source text before falling
+  back to metadata fields such as `content`, `body`, or `title`.
+- Structurally invalid pending drafts now retain a fully valid inert placeholder tool while
+  reporting the original validation issues, instead of constructing a partially invalid
+  model.
+
+### Security
+
+- Shared live and builtin conformance cases prove hidden static-tenant filters remain attached
+  to search, exact-ID lookup, count, and scroll paths. Builtins that cannot preserve those
+  constraints are rejected during validation rather than exposed with weaker semantics.
+- Recursive inline-secret linting now inspects values only beneath credential-bearing keys
+  such as `api_key`, `auth_token`, `token`, `password`, and `dsn`, avoiding false positives
+  from unrelated URLs and ordinary configuration text while retaining nested credential
+  detection.
+- Security guidance now distinguishes desktop/stdio static tenancy, authenticated HTTP
+  claim/header tenancy, and caller-supplied Python in-process identity; these profiles are
+  documented as separate trust models rather than interchangeable guarantees.
+
 ## [0.2.0] — 2026-08-23
 
 Production HTTP MCP server. Every `security.*`, `observability.*`, credential, rerank, and `profiles.enterprise` knob that 0.1.3 *declared* is now applied at `serve` and `connect` — not only at `validate`. Same YAML still compiles to in-process `load_tools`.

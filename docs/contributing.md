@@ -2,7 +2,9 @@
 
 Development setup, PR rules, and versioning live in
 [CONTRIBUTING.md](https://github.com/kjgpta/vectorsmith/blob/main/CONTRIBUTING.md)
-on GitHub.
+on GitHub. Live adapter contributors should also read
+[backend conformance](conformance.md) before changing a capability flag or
+oracle threshold.
 
 To preview this site locally:
 

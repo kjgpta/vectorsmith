@@ -8,16 +8,16 @@ Hosts that cannot import Python (Claude Desktop, Codex, Cursor) use
 from __future__ import annotations
 
 import asyncio
-import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field, create_model
 
+from vectorsmith.context import fresh_call_context
 from vectorsmith.runtime import BoundTools, connect
-from vectorsmith_core.api import CallContext
 from vectorsmith_core.execute.engine import Engine
 
 _JSON_TO_PY: dict[str, type] = {
@@ -65,18 +65,22 @@ def _args_model(tool_name: str, input_schema: dict[str, Any]) -> type[BaseModel]
 
 
 def _bind(engine: Engine, name: str, schema: dict[str, Any]) -> StructuredTool:
-    async def _arun(**kwargs: Any) -> dict[str, Any]:
+    async def _arun(
+        config: RunnableConfig = None,  # type: ignore[assignment]
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         clean = {k: v for k, v in kwargs.items() if v is not None}
-        result = await engine.call(
-            name, clean, ctx=CallContext(request_id=str(uuid.uuid4()))
-        )
+        result = await engine.call(name, clean, ctx=fresh_call_context(config))
         return result.model_dump()
 
-    def _run(**kwargs: Any) -> dict[str, Any]:
+    def _run(
+        config: RunnableConfig = None,  # type: ignore[assignment]
+        **kwargs: Any,
+    ) -> dict[str, Any]:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(_arun(**kwargs))
+            return asyncio.run(_arun(config=config, **kwargs))
         raise RuntimeError(f"tool {name!r} must be awaited in an async context")
 
     return StructuredTool(

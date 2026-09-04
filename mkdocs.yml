@@ -91,6 +91,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Vector stores: vector-stores.md
+  - Backend conformance: conformance.md
   - Use in an agent: use-in-agents.md
   - Integrations:
       - Overview: integrations/README.md

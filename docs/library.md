@@ -46,7 +46,8 @@ Each store extra also pulls **FastEmbed**. Details: [vector stores](vector-store
 
 ## Public Python names
 
-Application code imports **`vectorsmith` only**:
+Application code imports the runtime from **`vectorsmith`**. Request identity
+uses the bundled compiler API's `CallContext`:
 
 | Import | Extra | Role |
 |---|---|---|
@@ -55,6 +56,7 @@ Application code imports **`vectorsmith` only**:
 | `from vectorsmith.langgraph import load_tools` | `langgraph` | same function |
 | `from vectorsmith.openai_agents import load_tools` | `openai-agents` | Agents SDK tools |
 | `from vectorsmith.anthropic import load_tools` | `anthropic` | Messages API tools + `execute` |
+| `from vectorsmith_core.api import CallContext` | none | Optional authenticated identity for `BoundTools.call(..., ctx=...)` and framework wrappers |
 
 **Do not import `Engine`.** Authoring/CI may use `from vectorsmith_core import load_project`.
 
@@ -64,8 +66,11 @@ Envelope and exceptions: [Python API](python-api.md).
 
 ## CLI commands
 
-`init` · `validate` · `test` · `serve` · `introspect` · `migrate` · `drafts` · `approve` · `auth`
+`init` · `validate` · `test` · `serve` · `introspect` · `migrate` ·
+`drafts` · `approve` · `auth` · experimental `discover` · experimental `eval`
+· experimental `drift`
 
+The lifecycle prototypes require `--experimental` and never auto-promote.
 Every flag: [CLI](cli.md).
 
 ---
@@ -85,6 +90,10 @@ Every flag: [CLI](cli.md).
 Auth: `--auth none` (loopback only) · `builtin` (needs `https` `--public-url`) · `jwt` (JWKS reachability is part of `/readyz`) · `api_key`.
 
 During SIGTERM drain, new `POST /mcp` returns **503** `shutting_down`. Rate limits → **429**. Tool deadline → **504**. RBAC deny → **403**. Auth failure → **401**.
+
+HTTP MCP initialize accepts `2024-11-05`, `2025-03-26`, `2025-06-18`, and
+`2025-11-25`. Unsupported or missing protocol versions return JSON-RPC
+`-32022` with requested/supported details.
 
 ---
 
@@ -134,6 +143,9 @@ Issue codes (`VBxxxx`, `VE00x`, `POL000`): [YAML codes](tools-yaml-reference.md#
 - `Engine` is not a public SDK
 
 **0.2.0** is the production HTTP server: JWT, tenancy, RBAC, credential resolvers, audit / OTel / Prometheus, Redis rate limits, and enterprise hardening at `serve` / `connect`.
+
+That status describes the HTTP runtime. Every current vector-store adapter is
+still experimental; see [backend conformance](conformance.md).
 
 ---
 

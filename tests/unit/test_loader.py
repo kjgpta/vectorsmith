@@ -82,3 +82,23 @@ def test_secret_corpus_hit_rate() -> None:
 def test_clean_env_refs_no_false_positive() -> None:
     _tds, _v, _e, secrets = parse_tds(CLEAN, env={"QDRANT_URL": "http://q", "QDRANT_API_KEY": "x"})
     assert secrets == []
+
+
+def test_secret_lint_ignores_noncredential_connection_metadata() -> None:
+    data = _minimal("http://localhost:6333")
+    data["connections"]["main"]["builtin_defaults"] = {
+        "collections": ["VectorsmithConformance"],
+    }
+
+    _tds, _v, _e, secrets = parse_tds(data, env={})
+
+    assert secrets == []
+
+
+def test_secret_lint_still_checks_credential_fields() -> None:
+    data = _minimal("http://localhost:6333")
+    data["connections"]["main"]["api_key"] = "sk-" + ("a9" * 24)
+
+    _tds, _v, _e, secrets = parse_tds(data, env={})
+
+    assert secrets == ["connections.main.api_key"]

@@ -49,3 +49,26 @@ app = graph.compile()
 ```
 
 Call `await vs.aclose()` when the process exits.
+
+## Request identity
+
+LangGraph forwards LangChain runnable configuration to tool calls. Supply an
+authenticated VectorSmith context when invoking the graph:
+
+```python
+from vectorsmith_core.api import CallContext
+
+ctx = CallContext(
+    request_id="request-123",
+    principal="alice",
+    claims={"roles": ["viewer"]},
+    tenant_value="acme",
+)
+result = await app.ainvoke(
+    {"messages": [{"role": "user", "content": prompt}]},
+    config={"configurable": {"vectorsmith_context": ctx}},
+)
+```
+
+The embedding application remains the trust boundary for caller-supplied
+identity.

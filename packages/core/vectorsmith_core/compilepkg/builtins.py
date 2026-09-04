@@ -65,7 +65,15 @@ def synthesize(tds: TDSFile, *, sparse: dict[str, bool] | None = None) -> TDSFil
             name = f"search_{cname}"
             if name not in existing:
                 target, extra_params = collection_param()
-                hybrid = caps.hybrid and bool(sparse)
+                hybrid = False
+                if caps.hybrid and sparse:
+                    if target.collection != "__param__":
+                        hybrid = bool(sparse.get(f"{cname}:{target.collection}", False))
+                    elif collections:
+                        hybrid = all(
+                            sparse.get(f"{cname}:{collection}", False)
+                            for collection in collections
+                        )
                 extra.append(
                     _synth(
                         ToolSpec(

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, ClassVar
 
 from vectorsmith_core.adapters.base import RowBatch, SearchRequest, VectorBackendAdapter
 from vectorsmith_core.adapters.capabilities import PINECONE_CAPS
-from vectorsmith_core.errors import BackendUnreachable
+from vectorsmith_core.errors import BackendUnreachable, InvalidArgumentsError
 from vectorsmith_core.ir.filter import And, Cond, IRNode, Or
 
 
@@ -24,10 +25,27 @@ class PineconeAdapter(VectorBackendAdapter):
             return None
         if isinstance(node, Cond):
             if "." in node.path:
-                raise BackendUnreachable(detail="VB2004 nested paths not supported")
+                raise InvalidArgumentsError(detail="Pinecone does not support nested paths")
+            if node.op not in self.caps.ops:
+                raise InvalidArgumentsError(detail=f"Pinecone does not support op '{node.op}'")
             values = node.value
             if node.op == "in" and isinstance(values, list) and len(values) > 10_000:
-                values = values[:10_000]
+                raise InvalidArgumentsError(detail="Pinecone 'in' supports at most 10,000 values")
+            if node.op in {"contains_any", "contains_all"}:
+                items = (
+                    list(values)
+                    if isinstance(values, (list, tuple, set))
+                    else [values]
+                )
+                if not items:
+                    raise InvalidArgumentsError(
+                        detail=f"Pinecone '{node.op}' requires values"
+                    )
+                if node.op == "contains_any":
+                    return {node.path: {"$in": items}}
+                return {
+                    "$and": [{node.path: {"$in": [item]}} for item in items]
+                }
             return {node.path: {f"${node.op}": values}}
         if isinstance(node, And):
             return {"$and": [self.compile_filter(c) for c in node.children]}
@@ -49,7 +67,7 @@ class PineconeAdapter(VectorBackendAdapter):
 
     async def health(self) -> bool:
         try:
-            self._sdk().describe_index_stats()
+            await asyncio.to_thread(self._sdk().describe_index_stats)
             return True
         except BackendUnreachable:
             raise
@@ -57,18 +75,30 @@ class PineconeAdapter(VectorBackendAdapter):
             raise BackendUnreachable(detail=str(exc)) from exc
 
     async def list_collections(self) -> list[str]:
-        stats = self._sdk().describe_index_stats()
-        nss = getattr(stats, "namespaces", None) or {}
-        if isinstance(nss, dict):
-            return list(nss) or [""]
-        return [""]
+        try:
+            stats = await asyncio.to_thread(self._sdk().describe_index_stats)
+            nss = getattr(stats, "namespaces", None) or {}
+            if isinstance(nss, dict):
+                return list(nss) or [""]
+            return [""]
+        except BackendUnreachable:
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
 
     async def search(self, req: SearchRequest) -> RowBatch:
         if req.vector is None:
-            return RowBatch(rows=[], exhausted=True)
+            raise InvalidArgumentsError(
+                detail="Pinecone does not support filter-only lookup or scroll"
+            )
+        if req.offset is not None:
+            raise InvalidArgumentsError(detail="Pinecone does not support vector search offsets")
+        if req.mode == "hybrid":
+            raise InvalidArgumentsError(detail="Pinecone hybrid search is not implemented")
         ns = req.collection if req.collection != "__param__" else (self.namespace or "")
         try:
-            res = self._sdk().query(
+            res = await asyncio.to_thread(
+                self._sdk().query,
                 vector=req.vector,
                 top_k=req.limit,
                 namespace=ns,
@@ -83,24 +113,36 @@ class PineconeAdapter(VectorBackendAdapter):
         rows = []
         for m in matches:
             meta = getattr(m, "metadata", None) or {}
-            rows.append(
-                {
-                    "_id": getattr(m, "id", None),
-                    **dict(meta),
-                    "_score": getattr(m, "score", None),
-                }
-            )
+            row = {**dict(meta), "_id": getattr(m, "id", None)}
+            if req.projection is not None:
+                row = {key: value for key, value in row.items() if key in {*req.projection, "_id"}}
+            if req.with_score:
+                row["_score"] = getattr(m, "score", None)
+            rows.append(row)
         return RowBatch(rows=rows, exhausted=True)
 
     async def count(self, collection: str, filter_ir: IRNode | None) -> int:
-        _ = filter_ir
-        stats = self._sdk().describe_index_stats()
-        nss = getattr(stats, "namespaces", None) or {}
-        if isinstance(nss, dict) and collection in nss:
-            ns = nss[collection]
-            return int(getattr(ns, "vector_count", 0) or ns.get("vector_count", 0))
-        return int(getattr(stats, "total_vector_count", 0) or 0)
+        if filter_ir is not None:
+            raise InvalidArgumentsError(detail="Pinecone does not support exact filtered counts")
+        try:
+            stats = await asyncio.to_thread(self._sdk().describe_index_stats)
+            nss = getattr(stats, "namespaces", None) or {}
+            if isinstance(nss, dict) and collection in nss:
+                ns = nss[collection]
+                return int(getattr(ns, "vector_count", 0) or ns.get("vector_count", 0))
+            return int(getattr(stats, "total_vector_count", 0) or 0)
+        except BackendUnreachable:
+            raise
+        except Exception as exc:
+            raise BackendUnreachable(detail=str(exc)) from exc
 
     async def sample(self, collection: str, n: int) -> list[dict[str, Any]]:
         _ = collection, n
-        return []
+        raise InvalidArgumentsError(detail="Pinecone does not support deterministic sampling")
+
+    async def aclose(self) -> None:
+        if self._index is not None:
+            close = getattr(self._index, "close", None)
+            if callable(close):
+                await asyncio.to_thread(close)
+            self._index = None

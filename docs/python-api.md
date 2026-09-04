@@ -41,12 +41,38 @@ Returns [`BoundTools`](#boundtools). Compiles each YAML in-process (no `serve` s
 | `as_anthropic()` | `{name, description, input_schema}` for `messages.create` |
 | `as_langchain()` | LangChain `Toolset` (`vectorsmith[langchain]`) |
 | `as_openai_agents()` | OpenAI Agents `FunctionTool` list (`vectorsmith[openai-agents]`) |
-| `await call(name, args)` | Run a tool; `args` is a mapping (omit optional keys or pass `None` to drop them) |
+| `await call(name, args, ctx=None)` | Run a tool; optional `CallContext` carries `principal`, `claims`, `tenant_value` / `tenant_filter`, `request_id`, and `deadline_s` |
 | `await aclose()` | Close engines |
 
 ```python
 rows = await vs.call("search_invoices", {"query": "Globex", "limit": 3})
 ```
+
+For an authenticated in-process request, pass identity explicitly:
+
+```python
+from vectorsmith_core.api import CallContext
+
+ctx = CallContext(
+    request_id="request-123",
+    principal="alice",
+    claims={"roles": ["viewer"], "tenant_id": "acme"},
+)
+rows = await vs.call("search_invoices", {"query": "Globex"}, ctx=ctx)
+```
+
+OpenAI Agents propagates a `CallContext` (or identity mapping) from its run context.
+LangChain accepts it as
+`config={"configurable": {"vectorsmith_context": ctx}}`. Anthropic
+`execute(..., ctx=ctx)` accepts it directly.
+
+`CallContext` currently lives in the bundled compiler API at
+`vectorsmith_core.api`; application code should not import `Engine` or adapter
+internals. Framework mappings may use `vectorsmith_context` or `call_context`
+directly, or place `vectorsmith_context` under LangChain/LangGraph
+`configurable` or `metadata`. Plain mappings accept `principal`, `claims`,
+`roles`, `tenant_value`, `request_id`, and `deadline_s`; `roles` are normalized
+into `claims["roles"]` because roles are not a top-level `CallContext` field.
 
 Unknown `name` → `KeyError`.
 

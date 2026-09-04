@@ -80,3 +80,32 @@ def test_vb4004_payload_path_drift() -> None:
     codes = [i.code for i in issues if i.severity == "warning"]
     assert "VB4004" in codes
     assert any("renamed_client" in i.message for i in issues)
+
+
+def test_vb2026_missing_explicit_filter_index() -> None:
+    project = _project()
+    issues = live_contract_issues(
+        project.tds,
+        _plans(project),
+        {
+            "main:invoices": {
+                "dim": 384,
+                "fields": ["tenant", "client_name", "invoice_id"],
+                "indexed_paths": {"tenant": {"type": "keyword"}},
+            }
+        },
+    )
+
+    missing = [issue for issue in issues if issue.code == "VB2026"]
+    assert [(issue.path, issue.severity) for issue in missing] == [("client_name", "error")]
+
+
+def test_explicit_index_check_skips_unavailable_native_data() -> None:
+    project = _project()
+    issues = live_contract_issues(
+        project.tds,
+        _plans(project),
+        {"main:invoices": {"dim": 384, "fields": ["tenant", "client_name", "invoice_id"]}},
+    )
+
+    assert not any(issue.code == "VB2026" for issue in issues)

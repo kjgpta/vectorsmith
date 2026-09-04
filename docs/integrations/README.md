@@ -24,6 +24,12 @@ Same YAML either way. Do not import `Engine`. Field-by-field: [tools.yaml](../to
 
 Copy-paste configs: [`examples/mcp_hosts/`](https://github.com/kjgpta/vectorsmith/tree/main/examples/mcp_hosts/).
 
+Stdio remains on the handshake protocol even when a newer host probes
+`server/discover` before `initialize`, covering the GitHub Copilot CLI
+compatibility case. HTTP clients receive JSON-RPC `-32022` with the supported
+version list when their initialize version is unavailable. Details:
+[CLI protocol behavior](../cli.md#serve).
+
 ## Agent frameworks
 
 - [LangChain](langchain.md) — `from vectorsmith import load_tools`

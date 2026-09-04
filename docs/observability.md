@@ -23,13 +23,19 @@ Off by default. When `observability.metrics.enabled`, HTTP serve exposes `GET /m
 
 ```
 vectorsmith_tool_calls_total{tool,status}
-vectorsmith_tool_latency_seconds{tool}
+vectorsmith_tool_latency_seconds_bucket{tool,le}
+vectorsmith_tool_latency_seconds_count{tool}
+vectorsmith_tool_latency_seconds_sum{tool}
 vectorsmith_embed_requests_total{provider}
 vectorsmith_adapter_errors_total{backend,code}
 vectorsmith_rate_limit_hits_total{tool}
 ```
 
-HTTP: `GET /healthz` (liveness), `GET /readyz` (503 if a connection, required embedder, or JWT JWKS fetch is down), `GET /metrics` when metrics are enabled. Routes: [library surface](library.md#http-routes-serve---http).
+Latency uses fixed Prometheus histogram buckets. VectorSmith stores only bucket
+counts, total count, and sum per compiler-controlled metric key; it does not
+retain one latency sample per call.
+
+HTTP: `GET /healthz` (liveness), `GET /readyz` (503 if a connection, required embedder, or JWT JWKS fetch is down), `GET /metrics` when metrics are enabled. Routes: [library surface](library.md#http-routes-serve-http).
 
 ## Logs
 

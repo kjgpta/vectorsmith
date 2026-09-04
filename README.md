@@ -12,10 +12,11 @@ Write a `tools.yaml`. VectorSmith compiles it into typed, tenant-guarded tools �
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB.svg)](pyproject.toml)
 [![TDS](https://img.shields.io/badge/tools.yaml-TDS%20v1%20%2B%20v2-7C3AED.svg)](docs/tools-yaml-reference.md)
 [![MCP](https://img.shields.io/badge/MCP-stdio%20%2B%20HTTP-111827.svg)](docs/integrations/README.md)
-[![Version](https://img.shields.io/badge/version-0.2.0-0F766E.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.1-0F766E.svg)](CHANGELOG.md)
+[![Backend status](https://img.shields.io/badge/backends-experimental-C2410C.svg)](docs/conformance.md)
 [![Docs](https://img.shields.io/badge/docs-kjgpta.github.io-0F766E.svg)](https://kjgpta.github.io/vectorsmith/)
 
-[What it is](#why-this-exists) · [How it works](#how-it-works) · [Write YAML](#write-a-tool-not-a-prompt) · [Python](#in-your-agent-python) · [Claude / Codex / Cursor](#in-claude-codex-cursor) · [Production HTTP](#production-http-server) · [Try it](#try-it) · [**Docs**](https://kjgpta.github.io/vectorsmith/)
+[What it is](#why-this-exists) · [How it works](#how-it-works) · [Write YAML](#write-a-tool-not-a-prompt) · [Python](#in-your-agent-python) · [Claude / Codex / Cursor](#in-claude-codex-cursor) · [Production HTTP](#production-http-server) · [Backend evidence](#stores) · [Try it](#try-it) · [**Docs**](https://kjgpta.github.io/vectorsmith/)
 
 </div>
 
@@ -194,6 +195,13 @@ from vectorsmith.anthropic import load_tools      # messages.create(tools=vs.too
 from vectorsmith import connect                   # await vs.call("search_invoices", {…})
 ```
 
+Authenticated Python applications can pass `ctx=CallContext(...)` to
+`BoundTools.call()`. Supported LangChain/LangGraph, OpenAI Agents, and Anthropic
+paths propagate that principal, claims/roles, tenant, deadline, and request ID.
+The application is responsible for constructing caller context from an
+authenticated request. See the [Python API](docs/python-api.md) and
+[security profiles](docs/security-hardening.md#identity-profiles-are-not-interchangeable).
+
 | Extra | Import |
 |---|---|
 | `vectorsmith[langchain]` | `from vectorsmith import load_tools` |
@@ -238,6 +246,10 @@ Copy-paste snippets: [`examples/mcp_hosts/`](examples/mcp_hosts/). Slack, GitHub
 
 `0.2.0` is the production HTTP cut. `vectorsmith serve --http` is Streamable HTTP MCP (`POST /mcp`) for claude.ai, gateways, and Kubernetes. Every `security.*` / `observability.*` / credential / `profiles.enterprise` knob in YAML is applied at process start — the same contract `connect` / `load_tools` use in-process.
 
+That describes the HTTP runtime, not stable backend status. All six adapters
+currently remain experimental; see [backend evidence](docs/conformance.md)
+before making a production support claim.
+
 ```bash
 pip install "vectorsmith[qdrant,auth-jwt,otel]"
 
@@ -269,11 +281,28 @@ Reference catalog: [`examples/enterprise/`](examples/enterprise/). Chart and pro
 
 ## Stores
 
-`backend` on a connection is one of six shipped adapters. Full matrix (extras, hybrid, nested paths): **[vector stores](docs/vector-stores.md)**.
+`backend` on a connection is one of six adapters. All currently have
+**experimental** support status: the advertised read-only surface is usable and
+tested, but the complete fault and supported-version matrix required for stable
+status is not finished. Unsupported semantics fail validation instead of
+silently returning partial or unfiltered results.
 
 `qdrant` · `pgvector` · `chroma` · `pinecone` · `weaviate` · `milvus`
 
-pgvector can run in **table mode** (no vector column) for lookup / count / scroll. Hybrid search is capability-gated (Qdrant / Weaviate / Milvus / Pinecone) and checked with `validate --live`.
+The deterministic local matrix covers hidden tenant filters, exact IDs, counts,
+pagination, projection, nested and array filters, hybrid ranking, typed
+introspection, server-side embedding, score direction, edge-case payloads,
+read-only builtins/drafts, cleanup, and error translation. Current generated
+pass/skip counts and tested client/server versions are in
+**[backend conformance](docs/conformance.md)** for exact server/client versions,
+per-backend results, tested behavior, and remaining stability blockers.
+
+The current capability matrix advertises hybrid search only for Qdrant and
+Weaviate. pgvector can run in **table mode** (no vector column) for lookup,
+count, scroll, and pipelines. Pinecone intentionally rejects filter-only
+scroll, filtered count, hybrid mode, and exact-ID builtins that cannot preserve
+metadata guardrails. Full operator and feature details:
+**[vector stores](docs/vector-stores.md)**.
 
 Production extras (install what you turn on in YAML):
 
@@ -324,11 +353,18 @@ Tickets are a second file / second MCP name: `tools.tickets.yaml` → `--name ti
 | `test` | Call one compiled tool without serving |
 | `serve` | MCP stdio (Desktop / Codex / Cursor; `--watch` on by default) or `--http HOST:PORT` (no watch). HTTP `--auth`: `builtin` (needs `https` `--public-url`) · `jwt` · `api_key` · `none` (loopback only). `--live-embed` includes the embedder on `/readyz`. |
 | `introspect` | Collection / field metadata to `--out` (default `schema.json`). Requires `--connection`. |
-| `drafts` / `approve` | `drafts list\|reject NAME`. `approve NAME [--file tools.yaml]` promotes into that file. Drafts live in `./tools.drafts.yaml` (process cwd). |
+| `discover --experimental` | Introspect live collections and write pending schema-backed drafts without changing `tools.yaml`. |
+| `eval --experimental` | Execute checked-in tool-call scenarios and write row/isolation/score invariant results. |
+| `drift --experimental` | Compare a metadata-only schema export with live introspection; report suggestions without auto-promotion. |
+| `drafts` / `approve` | `drafts list\|reject NAME`. Approval preserves YAML formatting, increments the catalog version, records provenance, and supports `--dry-run`. |
 | `auth` | `rotate-secret` \| `revoke` for builtin HTTP OAuth |
 | `migrate` | `tds_version` 1 → 2 (`--dry-run` / `--write`) |
 
-`validate` exits `0` / `1` (`--strict` warnings) / `2` (errors). `test` and `introspect` use `3` on a live failure. `serve --http --auth none` off localhost exits `3`.
+`validate` exits `0` / `1` (`--strict` warnings) / `2` (errors).
+Experimental `eval` and `drift` use `1` for failed scenarios or detected
+drift; `discover` uses `3` for live/validation failure. `test` and
+`introspect` also use `3` on live failure. `serve --http --auth none` off
+localhost exits `3`.
 
 ---
 
@@ -339,7 +375,8 @@ Tickets are a second file / second MCP name: `tools.tickets.yaml` → `--name ti
 | I want to… | Go here |
 |---|---|
 | Get a tool working in five minutes | [Getting started](docs/getting-started.md) |
-| See which vector stores ship | [Vector stores](docs/vector-stores.md) |
+| Compare vector-store capabilities and support levels | [Vector stores](docs/vector-stores.md) |
+| See exactly what is tested per backend | [Backend conformance](docs/conformance.md) |
 | Understand every `tools.yaml` field | [YAML reference](docs/tools-yaml-reference.md) |
 | Plug into Claude, Codex, Cursor, LangChain, … | [Integrations](docs/integrations/README.md) |
 | Look up a CLI flag | [CLI](docs/cli.md) |
@@ -363,6 +400,13 @@ uv sync
 uv run ruff check .
 uv run pytest -m "not conformance"
 uv run lint-imports
+
+# Full local backend matrix (Docker services required)
+uv sync --group dev --group conformance --frozen
+docker compose up -d
+PYTHONPATH=packages/core:packages/cli:. \
+  uv run pytest tests/conformance --backend all
+docker compose down --volumes
 ```
 
 Workspace: `packages/core` (`vectorsmith_core`, unpublished) · `packages/cli` (published `vectorsmith`). Core must not import the CLI.

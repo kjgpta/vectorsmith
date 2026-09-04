@@ -17,6 +17,11 @@ from vectorsmith_cli.http.auth.resolve import build_auth_provider
 from vectorsmith_cli.http.builtin_oauth import server as oauth
 from vectorsmith_cli.http.builtin_oauth.store import AuthStore
 from vectorsmith_cli.identity import DEFAULT_SERVER_NAME, PRODUCT_NAME
+from vectorsmith_cli.mcp_compat import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    UnsupportedProtocolVersion,
+    negotiate_protocol_version,
+)
 from vectorsmith_cli.serve_common import (
     dispatch,
     expire_old_drafts,
@@ -174,8 +179,25 @@ def build_app(
         req_id = body.get("id")
         params = body.get("params") or {}
         if method == "initialize":
+            try:
+                protocol_version = negotiate_protocol_version(params.get("protocolVersion"))
+            except UnsupportedProtocolVersion as exc:
+                return JSONResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {
+                            "code": -32022,
+                            "message": str(exc),
+                            "data": {
+                                "requested": exc.requested,
+                                "supported": list(HANDSHAKE_PROTOCOL_VERSIONS),
+                            },
+                        },
+                    }
+                )
             result: dict[str, Any] = {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": True}},
                 "serverInfo": {
                     "name": server_name,

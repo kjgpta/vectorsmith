@@ -47,6 +47,12 @@ Compile, interpolate, synthesize built-ins, collect `VBxxxx` / `VE00x` / policy 
 
 Exit: `0` ok · `1` warnings with `--strict` · `2` errors.
 
+Every current adapter is experimental, so a catalog containing a backend
+connection emits `VB2024`; `--strict` intentionally turns that warning into
+exit `1`. Use ordinary validation while evaluating an adapter, and treat
+strict validation as an unmet stability gate rather than suppressing the
+warning. See [backend conformance](conformance.md).
+
 ---
 
 ## `test`
@@ -94,6 +100,12 @@ Default: compiled tools **plus** `list_available_tools` and `run_tool`. Those tw
 
 Drafts are written to **`./tools.drafts.yaml` (process cwd)**. Set `cwd` in the host config.
 
+Stdio uses MCP's handshake protocol even if a client first probes
+`server/discover` with a newer per-request protocol envelope. Supported
+initialize versions are `2024-11-05`, `2025-03-26`, `2025-06-18`, and
+`2025-11-25`; this avoids the discover-before-initialize failure seen in newer
+GitHub Copilot CLI clients.
+
 ### HTTP (claude.ai, remote MCP)
 
 ```bash
@@ -120,6 +132,12 @@ vectorsmith serve tools.yaml --http 0.0.0.0:8080 --auth jwt \
 
 `--watch` is **ignored** on HTTP. Restart after YAML edits. `--meta-tools` / `--no-meta-tools` and `--enable-define` apply the same as stdio.
 
+The CLI uses MCP SDK `>=2,<3`. HTTP `initialize` accepts handshake versions
+`2024-11-05`, `2025-03-26`, `2025-06-18`, and `2025-11-25`, echoing the
+requested supported version. A missing or unsupported version returns
+JSON-RPC error `-32022` with `data.requested` and `data.supported`; it is not
+silently upgraded.
+
 `GET /healthz` → `{"ok": true}` (liveness). `GET /readyz` → 503 if any connection is down, a required embedder fails (every loaded project with search/pipeline tools, or `--live-embed`), or `--auth jwt` cannot fetch JWKS. `GET /metrics` when `observability.metrics.enabled`. `profiles.enterprise` and `validate --enterprise` rules refuse start (same as `connect`). `builtin` OAuth: PKCE, DCR, tokens in `~/.vectorsmith/authstate.db` (mode 0600). First start writes the access secret once to `~/.vectorsmith/access-secret.once` (mode 0600) — it is not printed.
 
 Exit: `2` if `builtin` lacks `https` `--public-url`, or jwt/api_key is missing JWKS/keys · `3` if `--auth none` is not loopback.
@@ -141,17 +159,100 @@ Exit `3` on live failure.
 
 ---
 
+## `discover` (experimental)
+
+```bash
+vectorsmith discover TOOLS.yaml --connection NAME --experimental \
+  [--collections invoices,tickets] [--out tools.discovered.drafts.yaml] \
+  [--env-file FILE]
+```
+
+Runs metadata-only introspection, detects likely tenant fields, chooses only
+operators advertised by that backend, and proposes at most eight schema-backed
+parameters per collection. The output contains pending draft records,
+provenance, validator issues, and tenant-field candidates.
+
+It does not edit `tools.yaml` or silently approve anything. Without
+`--experimental`, exits `2`; live/validation failure exits `3`. The default
+`tools.discovered.drafts.yaml` is a discovery report, not the
+`./tools.drafts.yaml` consumed by `vectorsmith approve`.
+
+---
+
+## `eval` (experimental)
+
+```bash
+vectorsmith eval TOOLS.yaml scenarios.yaml --experimental \
+  [--out vectorsmith-eval.json] [--env-file FILE]
+```
+
+Runs each checked-in call through the same `connect` / execution path used by
+applications. A scenario can assert the selected tool and exact arguments plus
+row invariants:
+
+```yaml
+scenarios:
+  - name: overdue invoices stay in tenant
+    request: Show overdue invoices
+    call:
+      tool: search_invoices
+      arguments: { status: [overdue] }
+    expected_tool: search_invoices
+    expected_arguments: { status: [overdue] }
+    expect:
+      min_rows: 1
+      max_rows: 20
+      row_field_equals: { tenant: acme }
+      forbidden_field_values: { tenant: [other] }
+      min_score: 0.5
+```
+
+Supported row checks are `exact_rows`, `min_rows`, `max_rows`,
+`row_field_equals`, `forbidden_field_values`, and `min_score`. The JSON report
+records each call, arguments, row count, failures, and aggregate pass/fail
+counts. Exit `1` means one or more scenarios failed; `2` means usage/format
+error.
+
+---
+
+## `drift` (experimental)
+
+```bash
+vectorsmith drift TOOLS.yaml schema.json --connection NAME --experimental \
+  [--out vectorsmith-drift.json] [--env-file FILE]
+```
+
+Compares a checked-in metadata-only schema export with fresh introspection and
+reports fields that were added, removed, or changed type. The output recommends
+review and rerunning evals, but never edits or promotes the catalog.
+
+Exit `1` means drift was found; `0` means no drift; missing
+`--experimental` exits `2`.
+
+---
+
 ## `drafts` / `approve`
 
 ```bash
 vectorsmith drafts list
 vectorsmith drafts reject NAME
-vectorsmith approve NAME [--file tools.yaml]
+vectorsmith approve NAME [--file tools.yaml] [--approver USER] [--dry-run]
 ```
 
 Reads `./tools.drafts.yaml` in the current working directory. Cap **10** pending; pending drafts **30 days** old expire on serve.
 
-`approve` interpolates the target YAML with an **empty** env map. Use `${VAR:-default}` in that file or interpolation fails. `--file` defaults to `tools.yaml`.
+`approve` revalidates the draft before promotion, prints a semantic summary of
+its kind, target, parameters, guardrails, provenance, and catalog-version
+change, then preserves existing YAML comments/formatting while appending it.
+Approval increments `meta.tool_catalog_version` and records the approver,
+timestamp, hash, and resulting version on the draft.
+
+`--dry-run` prints exactly that summary without changing the active catalog or
+draft status. `--approver` defaults to `$USER`, then `local-user`.
+
+`approve` interpolates the target YAML with an **empty** env map. Use
+`${VAR:-default}` in that file or interpolation fails. `--file` defaults to
+`tools.yaml`.
 
 ---
 
@@ -182,6 +283,6 @@ Builtin HTTP OAuth admin. `rotate-secret` writes a new secret once to `~/.vector
 | Code | Typical |
 |---|---|
 | `0` | Success |
-| `1` | `validate --strict` with warnings only |
+| `1` | `validate --strict` warnings, failed `eval` scenarios, or detected `drift` |
 | `2` | Validation / usage / missing draft / `builtin` missing `https` URL |
-| `3` | Live `test` / `introspect` failure; `--auth none` off localhost |
+| `3` | Live `test` / `introspect` / `discover` failure; `--auth none` off localhost |

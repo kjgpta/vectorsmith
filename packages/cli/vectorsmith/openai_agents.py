@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from vectorsmith.context import coerce_call_context
 from vectorsmith.runtime import BoundTools, connect
 
 
@@ -44,7 +45,7 @@ def _function_tool(bound: BoundTools, schema: dict[str, Any]) -> Any:
             args = {}
         if not isinstance(args, dict):
             return json.dumps({"error": "tool arguments must be a JSON object"})
-        result = await bound.call(name, args)
+        result = await bound.call(name, args, ctx=coerce_call_context(_ctx))
         return json.dumps(result)
 
     return FunctionTool(

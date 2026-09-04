@@ -120,7 +120,7 @@ def resolve_rerank_provider(name: str) -> RerankProvider:
 
 
 def _row_text(row: dict[str, Any]) -> str:
-    for key in ("text", "content", "body", "title"):
+    for key in ("text", "_document", "content", "body", "title"):
         val = row.get(key)
         if isinstance(val, str) and val:
             return val
