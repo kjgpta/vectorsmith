@@ -33,15 +33,16 @@ class PgvectorAdapter(VectorBackendAdapter):
         return {"sql": clause, "params": params, "composed": sql.SQL("{}").format(clause)}
 
     async def _conn(self) -> Any:
+        if self._pool is not None:
+            return self._pool
         try:
             from psycopg_pool import AsyncConnectionPool
         except ImportError as exc:
             raise BackendUnreachable(
                 detail="pgvector extra not installed: pip install vectorsmith-core[pgvector]"
             ) from exc
-        if self._pool is None:
-            self._pool = AsyncConnectionPool(conninfo=self.dsn, min_size=1, max_size=8, open=False)
-            await self._pool.open()
+        self._pool = AsyncConnectionPool(conninfo=self.dsn, min_size=1, max_size=8, open=False)
+        await self._pool.open()
         return self._pool
 
     async def health(self) -> bool:

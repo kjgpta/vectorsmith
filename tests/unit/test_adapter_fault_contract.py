@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.util import find_spec
 from types import SimpleNamespace
 
 import pytest
@@ -47,17 +48,20 @@ async def test_health_failures_use_vectorsmith_error_contract(
     weaviate._client = SimpleNamespace(is_ready=SyncClient().fail)
     milvus = MilvusAdapter({"uri": "unused"})
     milvus._client = SimpleNamespace(list_collections=SyncClient().fail)
-    pgvector = PgvectorAdapter(
-        PgvectorConn(
-            backend="pgvector",
-            dsn="postgresql://unused",
-            table="docs",
-        ),
-        {},
-    )
-    pgvector._pool = BrokenPool()
+    adapters = [qdrant, chroma, pinecone, weaviate, milvus]
+    if find_spec("psycopg_pool") is not None:
+        pgvector = PgvectorAdapter(
+            PgvectorConn(
+                backend="pgvector",
+                dsn="postgresql://unused",
+                table="docs",
+            ),
+            {},
+        )
+        pgvector._pool = BrokenPool()
+        adapters.append(pgvector)
 
-    for adapter in (qdrant, chroma, pinecone, weaviate, milvus, pgvector):
+    for adapter in adapters:
         with pytest.raises(BackendUnreachable, match=str(failure)):
             await adapter.health()
 

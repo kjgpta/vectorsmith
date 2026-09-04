@@ -140,6 +140,7 @@ def test_must_not_compiles_on_adapters() -> None:
         "archived": {"$ne": True}
     }
     assert PineconeAdapter(creds={}).compile_filter(inverted) == {"archived": {"$ne": True}}
+    pytest.importorskip("weaviate")
     weaviate = WeaviateAdapter(creds={}).compile_filter(inverted)
     assert "target='archived'" in repr(weaviate)
     assert "NOT_EQUAL" in repr(weaviate)

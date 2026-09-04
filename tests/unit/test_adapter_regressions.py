@@ -171,6 +171,7 @@ async def test_milvus_parses_filtered_count_response() -> None:
 
 
 async def test_weaviate_passes_filter_offset_and_projection_to_fetch() -> None:
+    pytest.importorskip("weaviate")
     sentinel = object()
 
     class Query:

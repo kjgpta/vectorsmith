@@ -33,6 +33,7 @@ def test_pinecone_tenant_filter() -> None:
 
 
 def test_weaviate_tenant_filter() -> None:
+    pytest.importorskip("weaviate")
     native = WeaviateAdapter(creds={}).compile_filter(TENANT)
     assert "target='tenant'" in repr(native)
     assert "value='acme'" in repr(native)
