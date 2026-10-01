@@ -84,7 +84,7 @@ jobs:
           --tb=short
       - name: Upload conformance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-${{ matrix.backend }}-${{ matrix.boundary }}
           path: .internal/phase2/*.json
